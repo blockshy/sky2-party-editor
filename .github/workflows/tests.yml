@@ -1,0 +1,44 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# CI 只读取公共源码，不使用游戏资源、玩家存档或发布凭据。
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.10'
+      - name: Verify pinned dependencies
+        shell: pwsh
+        run: ./tools/Setup-Dependencies.ps1
+      - name: Configure Windows x64
+        run: cmake -S . -B build -A x64
+      - name: Build both distributions
+        run: cmake --build build --config Release --parallel
+      - name: Run regression tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Check both release packages
+        shell: pwsh
+        run: |
+          ./tools/Package-Mod.ps1 -Distribution Standalone -BinaryPath ./build/Release/xinput1_4.dll -CompanionBinaryPath ./build/Release/Sky2PartyEditor.asi -OutputDirectory ./release/ci
+          ./tools/Package-Mod.ps1 -Distribution ASI -BinaryPath ./build/Release/Sky2PartyEditor.asi -CompanionBinaryPath ./build/Release/xinput1_4.dll -OutputDirectory ./release/ci
+
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Configure portable logic tests
+        run: cmake -S . -B build -DPARTY_BUILD_MOD=OFF
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.20)
+project(PresentChainReview LANGUAGES C CXX)
+
+if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(FATAL_ERROR "This isolated real-DXGI regression requires Windows x64 and MSVC.")
+endif()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(PRESENT_TEST_MINHOOK "${CMAKE_CURRENT_SOURCE_DIR}/../../.deps/minhook" CACHE PATH "MinHook source directory")
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+if(NOT TARGET minhook)
+    add_subdirectory("${PRESENT_TEST_MINHOOK}" minhook)
+endif()
+
+# 两个 DLL 链接同一静态库文件，但各自拥有一套运行时 MinHook 数据，精确模拟两个 ASI。
+foreach(plugin IN ITEMS HookA HookB)
+    add_library(${plugin} SHARED hook_plugin.cpp)
+    target_link_libraries(${plugin} PRIVATE minhook)
+    target_compile_definitions(${plugin} PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_compile_options(${plugin} PRIVATE /utf-8 /W4 /EHsc)
+    set_target_properties(${plugin} PROPERTIES PREFIX "")
+endforeach()
+add_executable(present_chain_host host.cpp)
+target_compile_definitions(present_chain_host PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(present_chain_host PRIVATE /utf-8 /W4 /EHsc)
+target_link_libraries(present_chain_host PRIVATE d3d11 dxgi user32)
+add_dependencies(present_chain_host HookA HookB)
+
+enable_testing()
+foreach(mode IN ITEMS race-ab race-ba serial-ab serial-ba ready-ab ready-ba)
+    # 每个场景用全新宿主进程，不在残留 hook 状态上继续测试。
+    add_test(NAME present_chain_${mode} COMMAND present_chain_host ${mode})
+    set_tests_properties(present_chain_${mode} PROPERTIES
+        WORKING_DIRECTORY "$<TARGET_FILE_DIR:present_chain_host>" TIMEOUT 30)
+endforeach()

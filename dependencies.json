@@ -1,0 +1,54 @@
+{
+  "build": {
+    "minhook": {
+      "repository": "https://github.com/TsudaKageyu/minhook.git",
+      "commit": "8af6b4acae5a9388fd742b56fa79ece89d96f823",
+      "files": {
+        "CMakeLists.txt": "c6b531bb7d3b62149fef9c3d9032e985df287b6d02e3c2887dfa04ab39a09a07",
+        "LICENSE.txt": "d5c2224982b0b95a16b098a561335fa93f3eaf4d0aa964b7843edb986df78dc8",
+        "cmake/minhook-config.cmake.in": "38b043bc0a0fcb674ce92f48dda16316e9f9c32f1c5d285043ad358901954f36",
+        "include/MinHook.h": "e34bbf7b855c842694f6e3dd78e2d280e99ed9732501e3dc1532a8626a8db8e5",
+        "src/buffer.c": "75a789eb718bd5ed2de039ccd330736a31d0a2d14e43d8e15e6cd2332432482d",
+        "src/buffer.h": "9769702bd625249e59a19ede05c84365fcc7707e1fa0e5df08df42227cee13e3",
+        "src/hde/hde32.c": "7749d5720abd98f3e2cbe7b17d02ecd9215f66917e8d9bd0af8a32b58a7e3657",
+        "src/hde/hde32.h": "5132de5be8ac7a9d054420f5caef0fb01437faa892f03b3cdc77f795973bf15a",
+        "src/hde/hde64.c": "35a6596188905a85d21d7d928bbb636e146dadd10c372762486a1c8541d0641d",
+        "src/hde/hde64.h": "84063581e7e2f15262b789283669ecc0984f6497dd40c44ab7abdd7b90776249",
+        "src/hde/pstdint.h": "604d1cdf45c5a95bc9cf1bbf39ca05ef83013541101d34971c5cd7577e3d5247",
+        "src/hde/table32.h": "a8a59b03cbb2cdbd7dc3c1cd7a95c4b46faf2fc3d195f8540654c7e3565e3f2f",
+        "src/hde/table64.h": "7b4d49f3733cbf9fb93e678cb6a408c6897bc9fcb33b94740eaded928617a4c1",
+        "src/hook.c": "3060d3c42f03a2f11324cbee95d853071757ed0fe4b1bc9eb5f0d8fc9e346a37",
+        "src/trampoline.c": "d837f8555681c3762468d712c43f2064ed31dee610e0b02965fd8aa54b88172f",
+        "src/trampoline.h": "27426751dde36cdd8346469e61cdcca47950b1056a69f21cc63f4b41743faf6a"
+      }
+    },
+    "imgui": {
+      "repository": "https://github.com/ocornut/imgui.git",
+      "commit": "420f1793417e39560ca39a4209c55a9f204fde13",
+      "files": {
+        "LICENSE.txt": "173506a2d6f7fb67990d257fb2507f188690eca39060c39469ae7bef43aae2a3",
+        "imconfig.h": "8f52ffb94056f2f1e3e88dca07fdc4727c4431e20de1714fb7aade025ea0d6d3",
+        "imgui.h": "f4184918a00c9932b6c6e25971ee1b6c905e1bfb4992a0802c3a513486a09ba0",
+        "imgui_internal.h": "2427a4e5d0cfcad7b58e745d5f746a153e5606e9278f40029ed9c7e598f20702",
+        "imgui.cpp": "968a451fc5e9f86fbe22e6461efbca363efe852dc7548d13d44fe7561a247e61",
+        "imgui_draw.cpp": "56769ea270fea7a50da16a2f40435f66deb19552b64a3513b2f248fcdf91d8b3",
+        "imgui_tables.cpp": "3ad111a80c986ba6a8aacc954674e2a70bd160814d9976e0b4ecdcf6b75c9e10",
+        "imgui_widgets.cpp": "9244190d890bfffd8f33b0dd184baf4d0364d2e437ed344e2dc71b2330a8e4c8",
+        "imstb_rectpack.h": "889b396795202d1457560a797a7242e96f6f132d4b88ca2d69be58bf05e1771f",
+        "imstb_textedit.h": "a985f5fa0ed97353d493b497961e9eef52082edcd045cf6954b69990ec9d0741",
+        "imstb_truetype.h": "c51a0f7e7ea760f2366bd3752635ec58e21fccfec4a832501639990ba6ce0528",
+        "backends/imgui_impl_win32.h": "2736595b8de1e56871661d5d9b96deec567d35521746fbe2ade8f0543acdfd2b",
+        "backends/imgui_impl_win32.cpp": "6a602ce28470bb209636c40633156e63a530acd49f137819d837d80688d52df6",
+        "backends/imgui_impl_dx11.h": "393acaa0fd95acb8c2431a17d6e952fc07ba29344074855aea5679ef3dd5d604",
+        "backends/imgui_impl_dx11.cpp": "ee561259e75ca08c4fcb109db05ba2ef98979175ec1bb7688078a9dfabf3e977"
+      }
+    }
+  },
+  "external_runtime": {
+    "name": "Ultimate ASI Loader",
+    "version": "9.7.4",
+    "release": "https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v9.7.4",
+    "bundled": false,
+    "installed_by_this_project": false
+  }
+}

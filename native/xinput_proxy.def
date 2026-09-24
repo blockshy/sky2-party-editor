@@ -1,0 +1,9 @@
+LIBRARY xinput1_4
+EXPORTS
+    XInputGetState=PartyGetState @2
+    XInputSetState=PartySetState @3
+    XInputGetCapabilities=PartyGetCapabilities @4
+    XInputEnable=PartyEnable @5
+    XInputGetBatteryInformation=PartyGetBatteryInformation @7
+    XInputGetKeystroke=PartyGetKeystroke @8
+    XInputGetAudioDeviceIds=PartyGetAudioDeviceIds @10
