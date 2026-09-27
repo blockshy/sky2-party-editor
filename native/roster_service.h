@@ -8,7 +8,6 @@ namespace sky2party {
 enum class RosterBlockReason : uint8_t { None, NotExploring, FormationStoryLock, NativeEntryLock };
 struct RosterEntry {
     uint32_t id = kNoRosterId;
-    const char* name = "";
     uint32_t level = 0;
     bool guest = false;
     bool inParty = false;

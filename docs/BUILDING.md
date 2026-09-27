@@ -2,7 +2,7 @@
 
 [返回首页](../README.md) · [参与贡献](../CONTRIBUTING.md) · [游戏内验证](TESTING.md)
 
-本页对应 **0.5.0**。默认构建同时输出独立版 `xinput1_4.dll` 和插件版 `Sky2PartyEditor.asi`，两者共用功能实现。构建、测试和打包不会安装插件或修改游戏存档。
+本页对应 **0.6.0**。默认构建同时输出独立版 `xinput1_4.dll` 和插件版 `Sky2PartyEditor.asi`，两者共用功能实现。构建、测试和打包不会安装插件或修改游戏存档；重现本次发行请检出 [`v0.6.0`](https://github.com/blockshy/sky2-party-editor/tree/v0.6.0) 标签。
 
 ## 环境与依赖
 
@@ -14,7 +14,9 @@
 | Dear ImGui | 独立控制面板，Win32 + DX11 后端 | 固定提交与逐文件 SHA-256 |
 | Ultimate ASI Loader 9.7.4 x64 | ASI 的外部加载器、可选集成测试 | 另行取得，不由依赖脚本下载或分发 |
 
-源码版本及指纹由 [`dependencies.json`](../dependencies.json) 固定。MinHook 和 ImGui 静态链接；中文字体读取 Windows 自带的微软雅黑，不附带字体文件。完整第三方许可见 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
+源码版本及指纹由 [`dependencies.json`](../dependencies.json) 固定。MinHook 和 ImGui 静态链接；八语字体读取本机 Windows 字库，按实际字形覆盖检查，不附带字体文件。完整第三方许可见 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
+
+构建不需要游戏资源。运行时才从已验证游戏目录只读加载八种语言的角色名和菜单用词；不把原始表或生成名称目录写入发行包。实现和翻译维护见[多语言界面](LOCALIZATION.md)。
 
 ## 准备与编译
 
@@ -38,7 +40,7 @@ pwsh -NoProfile -File .\tools\Setup-Dependencies.ps1 `
 
 ## 测试
 
-自动测试覆盖事务回退、真实条件指令、角色名单与补足规则、固定后备检查、命令队列失效、输入状态机，以及安装/卸载归属。角色服务及补足测试使用合成对象和受控替身，不操作真实游戏或存档。
+自动测试覆盖事务回退、真实条件指令、角色名单与补足规则、固定后备检查、命令队列失效、输入状态机，以及安装/卸载归属。新增检查覆盖八语文案与格式参数、文字/语音语言分离，以及合成 FPAC/TBL 的解析边界和角色 ID 配对。角色服务及补足测试使用合成对象和受控替身，不操作真实游戏或存档。
 
 ```powershell
 # 单独运行安装/打包检查；使用临时目录中的合成游戏环境。
@@ -75,7 +77,7 @@ pwsh -NoProfile -File .\tools\Package-Mod.ps1 `
   -CompanionBinaryPath .\build-release\xinput1_4.dll
 ```
 
-默认输出目录为 `release/0.5.0/`，也可用 `-OutputDirectory` 指定。发行包包括两项运行载荷、安装工具及玩家指南；许可文件合并项目与第三方完整条款。不会递归打包工作目录、依赖缓存、研究、游戏原文或生成数据。
+默认输出目录为 `release/0.6.0/`，也可用 `-OutputDirectory` 指定。发行包包括两项运行载荷、安装工具及玩家指南；许可文件合并项目与第三方完整条款。不会递归打包工作目录、依赖缓存、研究、游戏原文或生成数据。
 
 公开发行使用两份 ZIP 和汇总 `SHA256SUMS.txt`。发布前，应对最终 ZIP 核对哈希、实际解压路径、许可、安装/更新/卸载与双分发冲突；不要将不同构建的二进制和清单拼接使用。
 

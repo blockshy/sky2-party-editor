@@ -5,6 +5,10 @@
 #include "panel_input_policy.h"
 #include "control_state.h"
 #include "runtime.h"
+#include "ui_text.h"
+#include "game_language.h"
+#include "game_names.h"
+#include "panel_fonts.h"
 #include <d3d11.h>
 #include <dxgi.h>
 #include <MinHook.h>
@@ -15,6 +19,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <mutex>
 #include <string>
 
@@ -39,7 +44,52 @@ bool wasOpen = false, scrollSelection = false, submissionRejected = false;
 constexpr size_t featureCount = 4;
 constexpr ImVec4 accent{0.43f, 0.87f, 0.78f, 1.0f};
 constexpr ImVec4 warning{1.0f, 0.76f, 0.38f, 1.0f};
-const char* featureNames[] = {"解除固定队员", "随处编成", "暂不可选后备", "未入队角色（实验）"};
+constexpr Text featureTexts[] = {Text::FeatureFixedMembers, Text::FeatureAnywhere,
+    Text::FeatureUnavailable, Text::FeatureUnjoined};
+std::array<bool, kLanguageCount> fontComplete{};
+
+// 所有角色标签均从当前语言的原生表按稳定 ID 取得。资源不可用时明确显示编号，
+// 不使用另一语言的姓名、不缩写军衔或称谓，也不影响名单和二次确认所绑定的身份。
+std::string DisplayCharacter(uint32_t id) {
+    if (const auto* name = CharacterNameFor(CurrentLanguage(), id)) return name;
+    char buffer[96]{};
+    std::snprintf(buffer, sizeof(buffer), Tr(Text::CharacterIdFormat), id);
+    return buffer;
+}
+
+const char* ControlMessageText(ControlMessage message) noexcept {
+    switch (message) {
+    case ControlMessage::None: return "";
+    case ControlMessage::FixedMembersNeedRestoring: return Tr(Text::ControlFixedBlocked);
+    case ControlMessage::CannotVerifyParties: return Tr(Text::ControlFixedUnknown);
+    case ControlMessage::Applied: return Tr(Text::ControlApplied);
+    case ControlMessage::AppliedNotSaved: return Tr(Text::ControlSaveFailed);
+    case ControlMessage::ApplyFailed: return Tr(Text::ControlApplyFailed);
+    case ControlMessage::ServiceError: return Tr(Text::ControlException);
+    case ControlMessage::WaitingForExploration: return Tr(Text::ControlWaiting);
+    case ControlMessage::WaitingForSave: return Tr(Text::ControlLoadWait);
+    }
+    return "";
+}
+
+void CheckFontCoverage() {
+    for (unsigned index = 0; index < kLanguageCount; ++index) {
+        const auto language = static_cast<Language>(index);
+        bool complete = true;
+        for (unsigned text = 0; text < static_cast<unsigned>(Text::Count); ++text)
+            complete &= PanelFontCoversText(TextFor(language, static_cast<Text>(text)));
+        for (const auto& role : kRosterDefinitions)
+            if (const auto* name = CharacterNameFor(language, role.id)) complete &= PanelFontCoversText(name);
+        for (unsigned term = 0; term < static_cast<unsigned>(GameTerm::Count); ++term)
+            if (const auto* name = GameTermFor(language, static_cast<GameTerm>(term))) complete &= PanelFontCoversText(name);
+        fontComplete[index] = complete;
+        if (!complete) {
+            char diagnostic[128]{};
+            std::snprintf(diagnostic, sizeof(diagnostic), "Party font coverage incomplete for language index %u.", index);
+            Log(diagnostic);
+        }
+    }
+}
 
 bool ChestExpected(HMODULE module) {
     if (GetModuleHandleW(L"Sky2ChestTracker.asi")) return true;
@@ -144,13 +194,9 @@ bool InitializeGui(IDXGISwapChain* swap) {
     io.LogFilename = nullptr;
     // 手柄和键盘统一由自有按下沿状态机驱动。禁止后端再轮询 XInput，避免消费第二份状态。
     io.ConfigFlags = ImGuiConfigFlags_NoMouseCursorChange;
-    wchar_t windows[MAX_PATH]{};
-    GetWindowsDirectoryW(windows, MAX_PATH);
-    const std::wstring fontWide = std::wstring(windows) + L"\\Fonts\\msyh.ttc";
-    char font[MAX_PATH * 3]{};
-    WideCharToMultiByte(CP_UTF8, 0, fontWide.c_str(), -1, font, sizeof(font), nullptr, nullptr);
-    if (!io.Fonts->AddFontFromFileTTF(font, 20.0f, nullptr, io.Fonts->GetGlyphRangesChineseFull()))
-        Log("Party panel: Microsoft YaHei font unavailable.");
+    // 一次合并八语所需本机字库；热切换只选择文本，不重建图集或重置当前行。
+    LoadPanelFonts(io);
+    CheckFontCoverage();
     ImGui::StyleColorsDark();
     auto& style = ImGui::GetStyle();
     style.WindowRounding = 9.0f;
@@ -186,14 +232,14 @@ void ChangeSelection(size_t value) {
     scrollSelection = true;
 }
 const char* RoleAction(const RosterEntry& member) {
-    if (member.needsPreparation) return "补基础装备并加入";
-    return member.hidden ? "开放后备" : "加入后备";
+    if (member.needsPreparation) return Tr(Text::PrepareAndAdd);
+    return Tr(member.hidden ? Text::RevealReserve : Text::AddReserve);
 }
 const char* RoleState(const RosterEntry& member) {
-    if (member.hidden) return "隐藏后备";
-    if (member.inParty) return member.unavailable ? "暂不可选" : "已在名单";
-    if (!member.initialized && !member.needsPreparation) return "数据未就绪";
-    return "未入队";
+    if (member.hidden) return Tr(Text::HiddenReserve);
+    if (member.inParty) return Tr(member.unavailable ? Text::Unavailable : Text::InRoster);
+    if (!member.initialized && !member.needsPreparation) return Tr(Text::DataNotReady);
+    return Tr(Text::Unjoined);
 }
 bool CanAdd(const ControlSnapshot& snapshot, const RosterEntry& member) {
     return snapshot.appliedStateKnown && (snapshot.appliedFeatures & FeatureUnjoined) &&
@@ -231,7 +277,10 @@ bool DrawSelectionRow(const char* label, bool isSelected) {
         isSelected ? selection : ImVec4(0.14f, 0.17f, 0.19f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_HeaderActive,
         isSelected ? selection : ImVec4(0.20f, 0.23f, 0.25f, 1.0f));
-    const bool pressed = ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns);
+    // ### 后的标识恒定，配合调用方 PushID 保持每行身份；切换显示语言不会
+    // 令活动控件换成另一个角色。名单次序始终由稳定角色 ID 决定。
+    const auto widget = std::string(label) + "###selection";
+    const bool pressed = ImGui::Selectable(widget.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns);
     ImGui::PopStyleColor(2);
     return pressed;
 }
@@ -241,29 +290,106 @@ void DrawFixedMemberWarning(const ControlSnapshot& snapshot) {
     // 只展示游戏线程刚完成的有效风险快照。过期、失败或零风险不额外占用面板，
     // 也不据此宣称可以安全卸载；关闭功能时的最终复核仍由控制服务执行。
     if (!snapshot.fixedGuardFresh || !guard.valid || guard.riskCount == 0) return;
-    std::string summary = "固定队员仍在后备：";
+    std::string summary = Tr(Text::FixedWarningPrefix);
     const auto count = std::min<size_t>({guard.memberCount, guard.members.size(), 4});
     for (size_t index = 0; index < count; ++index) {
         const auto& member = guard.members[index];
-        const auto rosterIndex = RosterIndex(member.id);
-        char identity[96]{};
-        if (rosterIndex < kRosterDefinitions.size())
-            std::snprintf(identity, sizeof(identity), "队伍 %u · %s", member.partyIndex + 1,
-                kRosterDefinitions[rosterIndex].name);
-        else std::snprintf(identity, sizeof(identity), "队伍 %u · 角色 %u", member.partyIndex + 1, member.id);
-        if (index) summary += "；";
+        char identity[256]{};
+        const auto name = DisplayCharacter(member.id);
+        std::snprintf(identity, sizeof(identity), Tr(Text::FixedMemberFormat), member.partyIndex + 1, name.c_str());
+        if (index) summary += Tr(Text::ListSeparator);
         summary += identity;
     }
     // 显示条数有意限制为四条，避免多队伍记录挤掉操作区；总风险数仍明确保留。
     if (guard.riskCount > count) {
         char remainder[48]{};
-        std::snprintf(remainder, sizeof(remainder), "（共 %u 人）", guard.riskCount);
+        std::snprintf(remainder, sizeof(remainder), Tr(Text::FixedMoreFormat), guard.riskCount);
         summary += remainder;
     }
     ImGui::PushStyleColor(ImGuiCol_Text, warning);
     ImGui::TextWrapped("%s", summary.c_str());
     ImGui::PopStyleColor();
-    ImGui::TextWrapped("关闭解除固定或卸载前，请在原生编成中将其换回主力并保存。");
+    ImGui::TextWrapped("%s", Tr(Text::FixedRestoreNote));
+}
+
+const char* LevelHeading() noexcept {
+    if (const auto* term = GameTermFor(CurrentLanguage(), GameTerm::Level)) return term;
+    return Tr(Text::LevelColumn);
+}
+
+std::string FeatureStateLabel(const ControlSnapshot& snapshot, size_t index) {
+    const bool requested = (snapshot.requestedFeatures & (1u << index)) != 0;
+    const bool applied = (snapshot.appliedFeatures & (1u << index)) != 0;
+    char buffer[512]{};
+    if (!snapshot.appliedStateKnown)
+        std::snprintf(buffer, sizeof(buffer), Tr(Text::UnknownStateFormat), Tr(requested ? Text::Enable : Text::Disable));
+    else if (requested != applied)
+        std::snprintf(buffer, sizeof(buffer), Tr(Text::PendingStateFormat), Tr(applied ? Text::On : Text::Off),
+            Tr(requested ? Text::Enable : Text::Disable));
+    else return Tr(applied ? Text::On : Text::Off);
+    return buffer;
+}
+
+struct PanelLayout {
+    float width = 0, name = 0, level = 0, state = 0, featureState = 0;
+};
+
+PanelLayout MeasurePanel(const ControlSnapshot& snapshot, float scale) {
+    // 使用当前字体的实际宽度，而不是“中文字数”估算。中日韩名称和带军衔的
+    // 欧洲语言名称、手柄键位提示都会计入；切换语言时只调整尺寸，不清空选中行。
+    const auto widthOf = [](const char* text) { return ImGui::CalcTextSize(text).x; };
+    const auto widest = [&](std::initializer_list<Text> texts) {
+        float width = 0;
+        for (const auto text : texts) width = std::max(width, widthOf(Tr(text)));
+        return width;
+    };
+    PanelLayout result;
+    result.name = widthOf(Tr(Text::CharacterColumn));
+    for (const auto& definition : kRosterDefinitions)
+        result.name = std::max(result.name, widthOf(DisplayCharacter(definition.id).c_str()));
+    result.level = std::max(widthOf(LevelHeading()), widthOf("999"));
+    result.state = widest({Text::StatusColumn, Text::HiddenReserve, Text::Unavailable,
+        Text::InRoster, Text::DataNotReady, Text::Unjoined, Text::WaitingData});
+    const float action = widest({Text::ActionColumn, Text::PrepareAndAdd, Text::RevealReserve,
+        Text::AddReserve, Text::WaitingExecution, Text::ConfirmAgain, Text::AdjustInGame});
+    float feature = 0;
+    for (size_t index = 0; index < featureCount; ++index) {
+        feature = std::max(feature, widthOf(Tr(featureTexts[index])));
+        result.featureState = std::max(result.featureState, widthOf(FeatureStateLabel(snapshot, index).c_str()));
+    }
+    const auto& style = ImGui::GetStyle();
+    const float cell = style.CellPadding.x * 2 + 10 * scale;
+    result.name += cell; result.level += cell; result.state += cell; result.featureState += cell;
+    const bool pad = PanelUsingController();
+    const float shortcutLeft = std::max(widthOf(pad ? "View + LS" : "F11") + widthOf(Tr(Text::ShowHide)),
+        widthOf(pad ? "A" : "Enter") + widthOf(Tr(Text::ToggleConfirm)));
+    const float shortcutRight = std::max(widthOf(pad ? Tr(Text::DpadUpDown) : "↑ / ↓") + widthOf(Tr(Text::Select)),
+        widthOf(pad ? "B" : "Esc") + widthOf(Tr(Text::Close)));
+    const float padding = style.WindowPadding.x * 2 + style.ScrollbarSize + 24 * scale;
+    // 名单位于独立 child 内，除了外窗还需再扣一组 WindowPadding。遗漏此项会
+    // 让字体较大的法语动作列少约26px，即便整扇窗口没有横向溢出仍会裁掉末尾。
+    const float rosterPadding = style.WindowPadding.x * 2;
+    const float content = std::max({feature + result.featureState + cell,
+        result.name + result.level + result.state + action + cell + rosterPadding,
+        2 * std::max(shortcutLeft, shortcutRight) + style.ItemSpacing.x * 4});
+    result.width = std::min(std::max(700 * scale, content + padding), ImGui::GetIO().DisplaySize.x - 28);
+    return result;
+}
+
+std::string FooterMessage(const ControlSnapshot& snapshot, size_t roleIndex, uint64_t now) {
+    if (roleIndex < snapshot.roster.members.size() &&
+        confirmation.Armed(snapshot.roster.members[roleIndex].id, snapshot.roster.generation, now)) {
+        const auto& member = snapshot.roster.members[roleIndex];
+        char text[640]{};
+        const auto name = DisplayCharacter(member.id);
+        std::snprintf(text, sizeof(text), Tr(Text::ConfirmRoleFormat), name.c_str(), RoleAction(member));
+        return text;
+    }
+    if (submissionRejected) return Tr(Text::StateChanged);
+    if (snapshot.roster.lastResult != RosterResult::None) return RosterResultText(snapshot.roster.lastResult);
+    if (!(snapshot.appliedFeatures & FeatureUnjoined)) return Tr(Text::EnableUnjoinedNote);
+    if (!snapshot.roster.canEdit) return RosterBlockReasonText(snapshot.roster.blockReason);
+    return Tr(Text::RoleUsageNote);
 }
 
 void DrawPanel(uint32_t actions, const ControlSnapshot& snapshot, float scale) {
@@ -284,59 +410,76 @@ void DrawPanel(uint32_t actions, const ControlSnapshot& snapshot, float scale) {
     if (actions & panelinput::Activate) Activate(snapshot, now);
 
     auto& io = ImGui::GetIO();
-    const float width = std::min(700.0f * scale, io.DisplaySize.x - 24.0f);
-    const float height = std::min(780.0f * scale, io.DisplaySize.y - 28.0f);
+    const auto layout = MeasurePanel(snapshot, scale);
+    const float width = layout.width;
+    const float height = std::min(870.0f * scale, io.DisplaySize.y - 28.0f);
     ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - width) / 2, (io.DisplaySize.y - height) / 2), ImGuiCond_Always);
     const auto flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings;
     if (ImGui::Begin("Sky2PartyEditorPanel", nullptr, flags)) {
-        ImGui::TextColored(accent, "队伍编辑 · " SKY2_PARTY_VERSION);
-        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 70.0f * scale);
-        if (ImGui::SmallButton("关闭")) SetPanelOpen(false);
+        ImGui::TextColored(accent, Tr(Text::TitleFormat), SKY2_PARTY_VERSION);
+        const float closeWidth = ImGui::CalcTextSize(Tr(Text::Close)).x + ImGui::GetStyle().FramePadding.x * 2;
+        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeWidth);
+        const auto closeLabel = std::string(Tr(Text::Close)) + "###close";
+        if (ImGui::SmallButton(closeLabel.c_str())) SetPanelOpen(false);
+        const auto language = static_cast<unsigned>(CurrentLanguage());
+        if (language < kLanguageCount && !fontComplete[language])
+            ImGui::TextWrapped("Font glyphs are missing. Install the matching Windows supplemental fonts and restart.");
+        if (!GameNamesReady(CurrentLanguage())) ImGui::TextWrapped("%s", Tr(Text::GameNamesUnavailable));
         ImGui::Separator();
         if (ImGui::BeginTable("features", 2, ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn("功能", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("状态", ImGuiTableColumnFlags_WidthFixed, 205.0f * scale);
+            ImGui::TableSetupColumn(Tr(Text::FeatureColumn), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(Tr(Text::StatusColumn), ImGuiTableColumnFlags_WidthFixed, layout.featureState);
             for (size_t index = 0; index < featureCount; ++index) {
                 const auto bit = 1u << index;
                 const bool requested = (snapshot.requestedFeatures & bit) != 0;
                 const bool applied = (snapshot.appliedFeatures & bit) != 0;
                 ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
                 ImGui::PushID(static_cast<int>(index));
-                if (DrawSelectionRow(featureNames[index], selected == index)) {
+                if (DrawSelectionRow(Tr(featureTexts[index]), selected == index)) {
                     ChangeSelection(index); Activate(snapshot, now);
                 }
                 ImGui::PopID(); ImGui::TableSetColumnIndex(1);
-                if (!snapshot.appliedStateKnown)
-                    ImGui::TextColored(warning, "待核对（期望%s）", requested ? "开启" : "关闭");
-                else if (requested != applied)
-                    ImGui::TextColored(warning, "%s → 等待%s", applied ? "已开启" : "已关闭", requested ? "开启" : "关闭");
-                else ImGui::TextColored(applied ? accent : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
-                    "%s", applied ? "已开启" : "已关闭");
+                const auto color = !snapshot.appliedStateKnown || requested != applied ? warning :
+                    (applied ? accent : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextColored(color, "%s", FeatureStateLabel(snapshot, index).c_str());
             }
             ImGui::EndTable();
         }
-        if (snapshot.message[0]) ImGui::TextWrapped("%s", snapshot.message.data());
-        else ImGui::TextDisabled("开关将在正常探索、原生菜单关闭后生效。");
+        ImGui::TextWrapped("%s", snapshot.message != ControlMessage::None ?
+            ControlMessageText(snapshot.message) : Tr(Text::ControlDefault));
         DrawFixedMemberWarning(snapshot);
         ImGui::Separator();
-        ImGui::TextColored(accent, "角色后备");
-        ImGui::SameLine(); ImGui::TextDisabled("逐人确认，最多四名主力");
+        const auto* reserveLabel = GameTermFor(CurrentLanguage(), GameTerm::ReserveMembers);
+        const char* roleHeading = reserveLabel ? reserveLabel : Tr(Text::RoleSection);
+        ImGui::TextColored(accent, "%s", roleHeading);
+        if (ImGui::CalcTextSize(roleHeading).x + ImGui::CalcTextSize(Tr(Text::RoleSectionNote)).x +
+            ImGui::GetStyle().ItemSpacing.x < ImGui::GetContentRegionAvail().x) ImGui::SameLine();
+        ImGui::TextWrapped("%s", Tr(Text::RoleSectionNote));
 
         // 列表单独滚动，底部操作说明保持可见；键盘/手柄选择自动滚动到当前行。
         const auto roleIndex = selected >= featureCount ? selected - featureCount : snapshot.roster.members.size();
         const bool preparationSelected = roleIndex < snapshot.roster.members.size() &&
             snapshot.roster.members[roleIndex].needsPreparation;
-        const float footer = ((PanelControllerReady() ? 144.0f : 174.0f) +
-            (preparationSelected ? 46.0f : 0.0f)) * scale;
+        const auto footerMessage = FooterMessage(snapshot, roleIndex, now);
+        const float wrap = ImGui::GetContentRegionAvail().x;
+        const auto wrappedHeight = [&](const char* text) {
+            return ImGui::CalcTextSize(text, nullptr, false, wrap).y + ImGui::GetStyle().ItemSpacing.y;
+        };
+        // 为实际译文预留高度。长德/法文与当前确认提示不再依赖中文的固定行数，
+        // 列表独立滚动，底部操作说明和高亮快捷键保持可见。
+        const float footer = wrappedHeight(footerMessage.c_str()) + wrappedHeight(Tr(Text::SaveNote)) +
+            (preparationSelected ? wrappedHeight(Tr(Text::PrepareWeaponNote)) + wrappedHeight(Tr(Text::PrepareCraftNote)) : 0) +
+            (!PanelControllerReady() ? wrappedHeight(PanelInputStatus()) : 0) +
+            2 * ImGui::GetTextLineHeightWithSpacing() + 2 * ImGui::GetStyle().CellPadding.y * 2 + 20 * scale;
         const float listHeight = std::max(90.0f * scale, ImGui::GetContentRegionAvail().y - footer);
         if (ImGui::BeginChild("members", ImVec2(0, listHeight), ImGuiChildFlags_Borders)) {
             if (ImGui::BeginTable("roster", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
-                ImGui::TableSetupColumn("角色", ImGuiTableColumnFlags_WidthFixed, 126.0f * scale);
-                ImGui::TableSetupColumn("等级", ImGuiTableColumnFlags_WidthFixed, 54.0f * scale);
-                ImGui::TableSetupColumn("状态", ImGuiTableColumnFlags_WidthFixed, 106.0f * scale);
-                ImGui::TableSetupColumn("操作", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn(Tr(Text::CharacterColumn), ImGuiTableColumnFlags_WidthFixed, layout.name);
+                ImGui::TableSetupColumn(LevelHeading(), ImGuiTableColumnFlags_WidthFixed, layout.level);
+                ImGui::TableSetupColumn(Tr(Text::StatusColumn), ImGuiTableColumnFlags_WidthFixed, layout.state);
+                ImGui::TableSetupColumn(Tr(Text::ActionColumn), ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableHeadersRow();
                 for (size_t index = 0; index < snapshot.roster.members.size(); ++index) {
                     const auto& member = snapshot.roster.members[index];
@@ -345,21 +488,21 @@ void DrawPanel(uint32_t actions, const ControlSnapshot& snapshot, float scale) {
                     const bool armed = confirmation.Armed(member.id, snapshot.roster.generation, now);
                     ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
                     ImGui::PushID(static_cast<int>(position));
-                    const char* name = member.name && member.name[0] ? member.name : kRosterDefinitions[index].name;
-                    if (DrawSelectionRow(name, selected == position)) {
+                    const auto name = DisplayCharacter(kRosterDefinitions[index].id);
+                    if (DrawSelectionRow(name.c_str(), selected == position)) {
                         ChangeSelection(position); Activate(snapshot, now);
                     }
                     if (selected == position && scrollSelection) { ImGui::SetScrollHereY(0.5f); scrollSelection = false; }
                     ImGui::PopID(); ImGui::TableSetColumnIndex(1);
                     if (member.level) ImGui::Text("%u", member.level); else ImGui::TextDisabled("—");
                     ImGui::TableSetColumnIndex(2);
-                    ImGui::TextDisabled("%s", snapshot.roster.ready ? RoleState(member) : "等待游戏数据");
+                    ImGui::TextDisabled("%s", snapshot.roster.ready ? RoleState(member) : Tr(Text::WaitingData));
                     ImGui::TableSetColumnIndex(3);
                     if (snapshot.roster.pendingId == member.id && member.id != kNoRosterId)
-                        ImGui::TextColored(warning, "等待执行");
-                    else if (armed) ImGui::TextColored(warning, "再次确认");
+                        ImGui::TextColored(warning, "%s", Tr(Text::WaitingExecution));
+                    else if (armed) ImGui::TextColored(warning, "%s", Tr(Text::ConfirmAgain));
                     else if (available) ImGui::TextColored(accent, "%s", RoleAction(member));
-                    else if (member.inParty && !member.hidden) ImGui::TextDisabled("原生编成中调整");
+                    else if (member.inParty && !member.hidden) ImGui::TextDisabled("%s", Tr(Text::AdjustInGame));
                     else ImGui::TextDisabled("—");
                 }
                 ImGui::EndTable();
@@ -367,31 +510,25 @@ void DrawPanel(uint32_t actions, const ControlSnapshot& snapshot, float scale) {
         }
         ImGui::EndChild();
 
-        if (roleIndex < snapshot.roster.members.size() &&
-            confirmation.Armed(snapshot.roster.members[roleIndex].id, snapshot.roster.generation, now)) {
-            const auto& member = snapshot.roster.members[roleIndex];
-            ImGui::TextColored(warning, "再次确认：%s · %s", member.name, RoleAction(member));
-        } else if (submissionRejected) ImGui::TextColored(warning, "当前状态已变化，请返回探索后重试。");
-        else if (snapshot.roster.lastResult != RosterResult::None)
-            ImGui::TextWrapped("%s", RosterResultText(snapshot.roster.lastResult));
-        else if (!(snapshot.appliedFeatures & FeatureUnjoined))
-            ImGui::TextDisabled("开启“未入队角色（实验）”后，可选择角色加入后备。");
-        else if (!snapshot.roster.canEdit) ImGui::TextWrapped("%s", RosterBlockReasonText(snapshot.roster.blockReason));
-        else ImGui::TextDisabled("选择角色后确认两次；只补缺失基础装备/战技，保留培养。");
+        const bool needsAttention = submissionRejected || (roleIndex < snapshot.roster.members.size() &&
+            confirmation.Armed(snapshot.roster.members[roleIndex].id, snapshot.roster.generation, now));
+        ImGui::PushStyleColor(ImGuiCol_Text, needsAttention ? warning : ImGui::GetStyleColorVec4(ImGuiCol_Text));
+        ImGui::TextWrapped("%s", footerMessage.c_str());
+        ImGui::PopStyleColor();
         if (preparationSelected) {
-            ImGui::TextDisabled("空武器槽生成基础武器，不消耗背包；");
-            ImGui::TextDisabled("空战技按等级补齐，保留已有培养。");
+            ImGui::TextWrapped("%s", Tr(Text::PrepareWeaponNote));
+            ImGui::TextWrapped("%s", Tr(Text::PrepareCraftNote));
         }
-        ImGui::TextDisabled("加入后用原生编成换人；保存游戏会保留加入结果。");
+        ImGui::TextWrapped("%s", Tr(Text::SaveNote));
         ImGui::Separator();
         if (ImGui::BeginTable("shortcuts", 2, ImGuiTableFlags_SizingStretchSame)) {
             const bool pad = PanelUsingController();
             ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-            Hint(pad ? "View + LS" : "F11", "显示/隐藏");
-            ImGui::TableSetColumnIndex(1); Hint(pad ? "十字键 ↑ / ↓" : "↑ / ↓", "选择");
+            Hint(pad ? "View + LS" : "F11", Tr(Text::ShowHide));
+            ImGui::TableSetColumnIndex(1); Hint(pad ? Tr(Text::DpadUpDown) : "↑ / ↓", Tr(Text::Select));
             ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-            Hint(pad ? "A" : "Enter", "切换 / 确认");
-            ImGui::TableSetColumnIndex(1); Hint(pad ? "B" : "Esc", "关闭");
+            Hint(pad ? "A" : "Enter", Tr(Text::ToggleConfirm));
+            ImGui::TableSetColumnIndex(1); Hint(pad ? "B" : "Esc", Tr(Text::Close));
             ImGui::EndTable();
         }
         if (!PanelControllerReady()) ImGui::TextWrapped("%s", PanelInputStatus());
@@ -409,6 +546,8 @@ HRESULT WINAPI Present(IDXGISwapChain* swap, UINT interval, UINT options) {
                 DXGI_SWAP_CHAIN_DESC description{};
                 if (SUCCEEDED(swap->GetDesc(&description)) && description.OutputWindow == gameWindow) {
                     ImGui::SetCurrentContext(context);
+                    // 读取游戏文字语言并在本帧统一使用；不根据手柄或系统区域猜测。
+                    RefreshGameLanguage();
                     PumpPanelKeyboard();
                     const auto actions = ConsumePanelActions();
                     const auto snapshot = ReadControlSnapshot();

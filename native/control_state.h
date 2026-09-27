@@ -15,12 +15,19 @@ enum FeatureMask : uint32_t {
 inline constexpr uint32_t kAllFeatures = 15;
 inline constexpr uint32_t kDefaultFeatures = 7;
 
+// 跨线程只保存语义状态，不保存已经翻译的句子。即使旧请求仍在显示，
+// 绘制线程也会使用当前游戏语言重新取文案，避免切换语言后遗留中文提示。
+enum class ControlMessage : uint8_t {
+    None, FixedMembersNeedRestoring, CannotVerifyParties, Applied, AppliedNotSaved,
+    ApplyFailed, ServiceError, WaitingForExploration, WaitingForSave
+};
+
 struct ControlSnapshot {
     uint32_t requestedFeatures = kDefaultFeatures;
     uint32_t appliedFeatures = 0;
     bool appliedStateKnown = true;
     bool waitingForSafeState = true;
-    std::array<char, 192> message{};
+    ControlMessage message = ControlMessage::None;
     RosterSnapshot roster{};
     // 游戏线程采样的四队固定成员兼容性，不向界面暴露可解引用的游戏地址。
     // 超过半秒未更新时 fresh=false；界面不能用旧的“零风险”宣称卸载安全。

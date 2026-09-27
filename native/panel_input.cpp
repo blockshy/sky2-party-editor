@@ -3,6 +3,7 @@
 #include "panel_input.h"
 #include "panel_input_policy.h"
 #include "runtime.h"
+#include "ui_text.h"
 #include <Xinput.h>
 #include <MinHook.h>
 #include <atomic>
@@ -256,6 +257,6 @@ void SetPanelOpen(bool value) noexcept {
 bool PanelUsingController() noexcept { return controller.load(); }
 bool PanelControllerReady() noexcept { return readyDevices.load() != 0; }
 const char* PanelInputStatus() noexcept {
-    return PanelControllerReady() ? "" : "手柄输入链尚未确认，请使用 F11 打开；方向键 / Enter 操作。";
+    return PanelControllerReady() ? "" : Tr(Text::InputUnavailable);
 }
 }

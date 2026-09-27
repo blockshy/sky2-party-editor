@@ -8,16 +8,15 @@ namespace sky2party {
 inline constexpr uint32_t kNoRosterId = 0xFFFFFFFFu;
 struct RosterDefinition {
     uint32_t id;
-    const char* name;
     bool guest;
 };
 // 名单只含游戏中已有可战斗定义、独立状态槽和模型的十四人，不接受任意 NPC ID。
+// 身份与显示文本分离：角色名只能从玩家游戏的对应语言资源按 ID 取得，
+// 不在规则表中维护简称或自行翻译的副本，语言切换也不会改变名单顺序或身份。
 inline constexpr std::array<RosterDefinition, 14> kRosterDefinitions{{
-    {0, "艾丝蒂尔", false}, {1, "约书亚", false}, {2, "雪拉扎德", false},
-    {3, "奥利维尔", false}, {4, "克萝赛", false}, {5, "阿加特", false},
-    {6, "缇妲", false}, {7, "阵", false}, {119, "凯文", false},
-    {100, "克鲁茨", true}, {101, "亚妮拉丝", true}, {106, "乔丝特", true},
-    {107, "尤莉亚", true}, {112, "穆拉", true}
+    {0, false}, {1, false}, {2, false}, {3, false}, {4, false},
+    {5, false}, {6, false}, {7, false}, {119, false},
+    {100, true}, {101, true}, {106, true}, {107, true}, {112, true}
 }};
 
 constexpr size_t RosterIndex(uint32_t id) noexcept {

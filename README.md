@@ -2,7 +2,9 @@
 
 《空之轨迹 the 2nd》队伍编辑 Mod。通过游戏原生编成页面调整主力与后备，并提供支持键盘、鼠标和 Xbox 手柄的控制面板。
 
-**当前版本：0.5.0** · [下载发行包](https://github.com/blockshy/sky2-party-editor/releases/tag/v0.5.0) · [更新记录](CHANGELOG.md)
+**当前版本：0.6.0** · [下载发行包](https://github.com/blockshy/sky2-party-editor/releases/tag/v0.6.0) · [发行说明](https://github.com/blockshy/sky2-party-editor/blob/v0.6.0/docs/RELEASE_NOTES_0.6.0.md) · [更新记录](CHANGELOG.md)
+
+界面自动跟随游戏文字语言，支持简体中文、繁体中文、日语、英语、德语、法语、西班牙语和韩语；角色名称与原生菜单术语直接读取对应语言的游戏资源。
 
 ## 功能
 
@@ -23,8 +25,8 @@
 
 | 发行包 | 适用情况 | 入口 |
 | --- | --- | --- |
-| `Sky2PartyEditor-0.5.0-Standalone.zip` | 只使用本 Mod，且游戏根目录没有其他同名 DLL | 根目录 `xinput1_4.dll` |
-| `Sky2PartyEditor-0.5.0-ASI.zip` | 与宝箱 Mod 等 ASI 插件共用公共 Loader | `plugins/Sky2PartyEditor.asi` |
+| `Sky2PartyEditor-0.6.0-Standalone.zip` | 只使用本 Mod，且游戏根目录没有其他同名 DLL | 根目录 `xinput1_4.dll` |
+| `Sky2PartyEditor-0.6.0-ASI.zip` | 与宝箱 Mod 等 ASI 插件共用公共 Loader | `plugins/Sky2PartyEditor.asi` |
 
 ASI 版需要另行安装 **Ultimate ASI Loader 9.7.4 x64**；本项目不捆绑或管理公共 Loader。与 [Sky2 Chest Tracker](https://github.com/blockshy/sky2-chest-tracker) 同用时，两者都选择 ASI 版。Loader 下载和双版迁移见[安装指南](docs/INSTALLATION.md)。GitHub 自动生成的 Source code 压缩包不能直接安装。
 
@@ -47,6 +49,7 @@ ASI 版需要另行安装 **Ultimate ASI Loader 9.7.4 x64**；本项目不捆绑
 | [使用指南](docs/USAGE.md) | 面板键位、角色范围、补足规则、配置 |
 | [测试与排错](docs/TESTING.md) | 游戏内回归步骤、日志与反馈信息 |
 | [构建指南](https://github.com/blockshy/sky2-party-editor/blob/main/docs/BUILDING.md) | 依赖、编译、自动测试与打包 |
+| [多语言维护](https://github.com/blockshy/sky2-party-editor/blob/main/docs/LOCALIZATION.md) | 语言检测、原生名称来源与翻译规则 |
 | [参与贡献](https://github.com/blockshy/sky2-party-editor/blob/main/CONTRIBUTING.md) | 问题反馈、代码变更与公开提交边界 |
 
 ## 兼容与许可

@@ -18,13 +18,13 @@ std::atomic<uint64_t> revision{1}, attemptedRevision{0};
 std::atomic<DWORD> gameThread{0};
 std::atomic<bool> stateKnown{true};
 std::mutex messageLock;
-std::array<char, 192> status{};
+ControlMessage status = ControlMessage::None;
 FixedMemberGuardResult lastFixedGuard{};
 uint64_t fixedGuardCapturedAt = 0;
 
-void SetStatus(const char* text) noexcept {
+void SetStatus(ControlMessage message) noexcept {
     std::lock_guard<std::mutex> guard(messageLock);
-    strncpy_s(status.data(), status.size(), text, _TRUNCATE);
+    status = message;
 }
 
 bool MatchTickSignature(uintptr_t address) noexcept {
@@ -66,8 +66,7 @@ bool OnFieldInput(uintptr_t context, uint32_t actionMask) noexcept {
                 // 只撤回本次请求；渲染线程若已提交新值，留给下一修订号处理。
                 requested.compare_exchange_strong(expectedRequest, before);
                 SetStatus(fixedGuard.valid ?
-                    "未关闭：请先在原生编成中将提示的固定队员换回主力。" :
-                    "未关闭：无法核实全部队伍，请返回稳定探索后重试。");
+                    ControlMessage::FixedMembersNeedRestoring : ControlMessage::CannotVerifyParties);
                 Log("Fixed-member restriction kept unlocked: reserve compatibility check rejected closing; no party data changed.");
             } else {
                 const NativeFeatureState native{(wanted & FeatureFixedMembers) != 0,
@@ -80,10 +79,10 @@ bool OnFieldInput(uintptr_t context, uint32_t actionMask) noexcept {
                     applied.store(wanted);
                     // 每条请求只记录一次成功，便于区分“协调入口已安装”和“实际设置已生效”。
                     Log("Requested feature switches applied on a safe exploration frame.");
-                    if (SaveFeaturePreferences(wanted)) SetStatus("设置已应用；角色加入需在下方单独确认。");
-                    else SetStatus("设置已生效，但配置保存失败；重启后可能恢复旧设置。");
+                    if (SaveFeaturePreferences(wanted)) SetStatus(ControlMessage::Applied);
+                    else SetStatus(ControlMessage::AppliedNotSaved);
                 } else {
-                    SetStatus("设置未完整应用，已停止重试；请查看日志并重启游戏。");
+                    SetStatus(ControlMessage::ApplyFailed);
                     Log("Feature request failed; no automatic retry and no roster addition in unknown state.");
                 }
             }
@@ -95,7 +94,7 @@ bool OnFieldInput(uintptr_t context, uint32_t actionMask) noexcept {
             stateKnown.load() && (applied.load() & FeatureAnywhere) != 0);
     } catch (...) {
         stateKnown.store(false);
-        SetStatus("控制服务发生异常；已停用角色加入，请重新启动游戏。");
+        SetStatus(ControlMessage::ServiceError);
         Log("Control service exception contained.");
     }
     return handled;
@@ -123,7 +122,7 @@ ControlSnapshot ReadControlSnapshot() noexcept {
 void RequestFeatureMask(uint32_t features) noexcept {
     requested.store(features & kAllFeatures);
     revision.fetch_add(1);
-    SetStatus("设置等待应用，请返回可自由行动的探索画面。");
+    SetStatus(ControlMessage::WaitingForExploration);
 }
 
 bool InstallControlService(uintptr_t base, uint32_t initialFeatures) noexcept {
@@ -137,7 +136,7 @@ bool InstallControlService(uintptr_t base, uint32_t initialFeatures) noexcept {
     applied.store(0);
     revision.store(1);
     attemptedRevision.store(0);
-    SetStatus("等待读取存档并进入自由探索。");
+    SetStatus(ControlMessage::WaitingForSave);
     const auto init = MH_Initialize();
     if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) return false;
     if (MH_CreateHook(target, reinterpret_cast<void*>(&OnFieldInput),

@@ -3,6 +3,8 @@
 #include "runtime.h"
 #include "control_state.h"
 #include "panel.h"
+#include "game_language.h"
+#include "game_names.h"
 #include <bcrypt.h>
 #include <array>
 #include <cstdio>
@@ -111,6 +113,17 @@ DWORD WINAPI Initialize(void*) noexcept {
             return 0;
         }
         const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        // 语言字段只对上方完整 SHA-256 已验证的宿主有效。此读取不写游戏设置或
+        // 存档；渲染线程后续刷新同一检测器，以游戏文字语言统一界面与原生角色名称。
+        InitializeGameLanguage(base);
+        // 原生名称来自已核验宿主旁的资源包，而非插件工作目录。只在启动时读取
+        // 必要的两张表并发布不可变缓存；失败仅影响原文显示，不阻塞其余功能。
+        wchar_t executablePath[MAX_PATH]{};
+        const auto executableLength = GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
+        const bool namesReady = executableLength && executableLength < MAX_PATH &&
+            InitializeGameNames(std::filesystem::path(executablePath).parent_path());
+        Log(namesReady ? "Native character names and menu terms ready for all eight text languages." :
+            "Native names unavailable for one or more languages; affected labels use explicit character IDs.");
         uint32_t initialFeatures = 0;
         const struct { const wchar_t* key; uint32_t bit; int initial; } options[]{
             {L"UnlockFixedMembers", FeatureFixedMembers, 1},

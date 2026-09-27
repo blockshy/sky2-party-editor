@@ -2,7 +2,7 @@
 
 [返回首页](../README.md) · [使用指南](USAGE.md) · [测试与排错](TESTING.md)
 
-本指南对应 **0.5.0**。下载 [Standalone 独立版或 ASI 插件版](https://github.com/blockshy/sky2-party-editor/releases/tag/v0.5.0)，完整解压后再操作。两种分发功能相同，不能同时安装。
+本指南适用于 **0.6.0**，也包含从 0.5.0 升级的步骤。下载 [0.6.0 Standalone 独立版或 ASI 插件版](https://github.com/blockshy/sky2-party-editor/releases/tag/v0.6.0)，完整解压后再操作。两种分发功能相同，不能同时安装。
 
 ## 兼容版本
 
@@ -73,6 +73,12 @@ pwsh -NoProfile -File .\tools\Install-Mod.ps1 -GamePath 'C:\Games\Trails in the 
 更新前退出游戏。脚本仅替换已识别的本项目二进制与许可，保留配置和日志。手动更新也只需替换对应分发的这两个文件，不必删除整个数据目录。
 
 请使用新包的脚本更新或卸载旧版。旧包未必识别新版本文件，遇到未知指纹会中止。保留完整发行包，勿混搭不同版本的脚本和清单。
+
+### 从 0.5.0 升级
+
+退出游戏，下载与原安装方式相同的 0.6.0 包，用新包脚本执行上面的安装命令；或手动替换该分发的入口文件和 `LICENSES.txt`。保留自己的 `settings.ini` 和 `party.log`，无需先卸载或重置设置。八语界面随游戏文字语言自动生效，不需要新增 INI 配置。
+
+ASI 用户无需替换公共 Loader。若同时更换独立版/ASI 版，请按下一节迁移，不要覆盖根目录中来源不同的 `xinput1_4.dll`。
 
 ## 切换分发
 

@@ -136,7 +136,7 @@ int main() {
     const auto saveFailed = ReadControlSnapshot();
     Check(saveFailed.appliedFeatures == 14 && lastAllowed && saveFailed.appliedStateKnown,
         "配置文件保存失败不撤销已经生效的游戏内设置");
-    Check(std::strstr(saveFailed.message.data(), "配置保存失败") != nullptr, "保存失败有准确提示");
+    Check(saveFailed.message == ControlMessage::AppliedNotSaved, "保存失败保留准确语义状态供当前语言绘制");
     Check(!lastFeatures.fixedMembers && lastFeatures.anywhere && lastFeatures.unlockUnavailable,
         "独立关闭固定成员不混淆其他开关");
 
@@ -156,7 +156,7 @@ int main() {
         "固定后备存在时拒绝关闭，不进入代码修改或配置保存");
     Check(blocked.appliedFeatures == 15 && blocked.requestedFeatures == 15 && !blocked.waitingForSafeState,
         "关闭被拒后界面恢复实际开关，不虚假显示等待关闭");
-    Check(std::strstr(blocked.message.data(), "换回主力") != nullptr,
+    Check(blocked.message == ControlMessage::FixedMembersNeedRestoring,
         "关闭失败给出可执行的原生恢复步骤");
     RunTick(); RunTick();
     Check(applyCalls == beforeBlockedApply && saveCalls == beforeBlockedSave,
@@ -169,7 +169,7 @@ int main() {
     guardFixture.failure = FixedMemberGuardFailure::ContextChanged;
     RequestFeatureMask(14); RunTick();
     Check(ReadControlSnapshot().appliedFeatures == 15 &&
-        std::strstr(ReadControlSnapshot().message.data(), "无法核实") != nullptr,
+        ReadControlSnapshot().message == ControlMessage::CannotVerifyParties,
         "数据未知不等于零风险，拒绝关闭并说明未核实");
     guardFixture = {true, FixedMemberGuardFailure::None};
     events.clear(); RequestFeatureMask(14); RunTick();

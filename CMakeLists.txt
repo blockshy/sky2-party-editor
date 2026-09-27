@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Sky2PartyEditor VERSION 0.5.0 LANGUAGES C CXX)
+project(Sky2PartyEditor VERSION 0.6.0 LANGUAGES C CXX)
 
 # 纯逻辑测试不需要游戏资源；插件仅支持已审计的 Windows x64 构建。
 option(PARTY_BUILD_MOD "同时构建独立 XInput 版与 ASI 队伍插件" ON)
@@ -39,7 +39,8 @@ if(PARTY_BUILD_MOD)
     add_library(party_runtime OBJECT
         native/runtime.cpp native/party_native.cpp native/anywhere_menu.cpp
         native/control_state.cpp native/roster_service.cpp native/roster_prepare.cpp native/fixed_member_guard.cpp
-        native/panel.cpp native/panel_input.cpp)
+        native/panel.cpp native/panel_input.cpp native/panel_fonts.cpp
+        native/game_language.cpp native/game_names.cpp)
     target_include_directories(party_runtime PRIVATE native)
     target_compile_definitions(party_runtime PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
         SKY2_PARTY_VERSION="${PROJECT_VERSION}")
@@ -74,8 +75,16 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME party_menu_route_tests COMMAND party_menu_route_tests)
     # 可逆功能事务与角色名单策略均使用合成数据，不需要游戏安装或存档。
-    foreach(logic_test IN ITEMS patch_toggle roster_policy roster_prepare fixed_member_guard)
+    foreach(logic_test IN ITEMS patch_toggle roster_policy roster_prepare fixed_member_guard localization_text language game_names)
         add_executable(party_${logic_test}_tests tests/${logic_test}_tests.cpp)
+        # 名称测试只使用自建 FPAC/TBL；文字语言测试在 Windows 私有内存中复现
+        # 设置布局，非 Windows 则仅验证纯枚举。两者均不依赖或修改游戏资源。
+        if(logic_test STREQUAL "game_names")
+            target_sources(party_${logic_test}_tests PRIVATE native/game_names.cpp)
+        elseif(logic_test STREQUAL "language" AND WIN32)
+            target_sources(party_${logic_test}_tests PRIVATE native/game_language.cpp)
+            target_compile_definitions(party_${logic_test}_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        endif()
         target_include_directories(party_${logic_test}_tests PRIVATE native)
         if(MSVC)
             target_compile_options(party_${logic_test}_tests PRIVATE /utf-8 /W4)

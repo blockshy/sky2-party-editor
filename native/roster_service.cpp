@@ -1,6 +1,7 @@
 // 所有游戏数据读取、名单变更均发生在已审核的探索输入回调之后。
 // 绘制线程与工作线程只能访问 g_snapshot 的副本，不能持有原生对象地址。
 #include "roster_service.h"
+#include "ui_text.h"
 #include "roster_prepare.h"
 #include "runtime.h"
 #include <Windows.h>
@@ -119,7 +120,6 @@ bool CaptureRaw(Capture& capture) noexcept {
         const auto& definition = kRosterDefinitions[i];
         auto& entry = capture.snapshot.members[i];
         entry.id = definition.id;
-        entry.name = definition.name;
         entry.guest = definition.guest;
         capture.facts[i].requestedId = definition.id;
         for (uint32_t j = 0; j < identity.count; ++j) {
@@ -367,23 +367,23 @@ void TickRosterOnGameThread(uintptr_t context, uint32_t mask, bool handled, bool
 const char* RosterResultText(RosterResult result) noexcept {
     switch (result) {
     case RosterResult::None: return "";
-    case RosterResult::Queued: return "等待当前探索帧处理";
-    case RosterResult::AddedReserve: return "已加入后备，原有培养保持不变";
-    case RosterResult::RevealedReserve: return "已显示在后备，原有培养保持不变";
-    case RosterResult::AlreadyPresent: return "角色已经在当前名单中";
-    case RosterResult::UnsupportedCharacter: return "不支持此角色";
-    case RosterResult::Uninitialized: return "角色数据尚未完整初始化，暂不可加入";
-    case RosterResult::InvalidData: return "当前名单或角色数据不符合已验证条件";
-    case RosterResult::Full: return "当前队伍名单已满";
-    case RosterResult::NotReady: return "等待读取当前角色数据";
-    case RosterResult::UnsafeState: return "请回到普通探索画面后重新操作";
-    case RosterResult::StaleRequest: return "场景或队伍已变化，请重新确认";
-    case RosterResult::Busy: return "上一条加入请求仍在处理";
-    case RosterResult::NativeRejected: return "未确认加入成功，请先核对游戏队伍";
-    case RosterResult::PreparationFailed: return "缺失数据未能补足，未加入队伍";
-    case RosterResult::PartiallyPrepared: return "数据已部分补足；未确认加入成功，请核对角色和队伍";
-    case RosterResult::PreparedAndAdded: return "已补足缺失数据并加入后备";
-    case RosterResult::PreparedAndRevealed: return "已补足缺失数据并显示在后备";
+    case RosterResult::Queued: return Tr(Text::ResultQueued);
+    case RosterResult::AddedReserve: return Tr(Text::ResultAddedReserve);
+    case RosterResult::RevealedReserve: return Tr(Text::ResultRevealedReserve);
+    case RosterResult::AlreadyPresent: return Tr(Text::ResultAlreadyPresent);
+    case RosterResult::UnsupportedCharacter: return Tr(Text::ResultUnsupportedCharacter);
+    case RosterResult::Uninitialized: return Tr(Text::ResultUninitialized);
+    case RosterResult::InvalidData: return Tr(Text::ResultInvalidData);
+    case RosterResult::Full: return Tr(Text::ResultFull);
+    case RosterResult::NotReady: return Tr(Text::ResultNotReady);
+    case RosterResult::UnsafeState: return Tr(Text::ResultUnsafeState);
+    case RosterResult::StaleRequest: return Tr(Text::ResultStaleRequest);
+    case RosterResult::Busy: return Tr(Text::ResultBusy);
+    case RosterResult::NativeRejected: return Tr(Text::ResultNativeRejected);
+    case RosterResult::PreparationFailed: return Tr(Text::ResultPreparationFailed);
+    case RosterResult::PartiallyPrepared: return Tr(Text::ResultPartiallyPrepared);
+    case RosterResult::PreparedAndAdded: return Tr(Text::ResultPreparedAndAdded);
+    case RosterResult::PreparedAndRevealed: return Tr(Text::ResultPreparedAndRevealed);
     }
     return "";
 }
@@ -391,9 +391,9 @@ const char* RosterResultText(RosterResult result) noexcept {
 const char* RosterBlockReasonText(RosterBlockReason reason) noexcept {
     switch (reason) {
     case RosterBlockReason::None: return "";
-    case RosterBlockReason::NotExploring: return "请回到可自由行动的探索画面并关闭游戏菜单";
-    case RosterBlockReason::FormationStoryLock: return "当前剧情禁止调整队伍；仍可查看角色和应用 Mod 设置";
-    case RosterBlockReason::NativeEntryLock: return "当前入口受限；开启随处编成后可在自由探索时加入角色";
+    case RosterBlockReason::NotExploring: return Tr(Text::BlockNotExploring);
+    case RosterBlockReason::FormationStoryLock: return Tr(Text::BlockFormationStoryLock);
+    case RosterBlockReason::NativeEntryLock: return Tr(Text::BlockNativeEntryLock);
     }
     return "";
 }

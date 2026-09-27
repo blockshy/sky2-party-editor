@@ -7,13 +7,19 @@
     "dfdfbb64efaf0569dde8752a7e54dc78aa7a99220b67475b43f53af593382348",
     "cdf490b747f1d8037c896b8c26c3d3ed2dde664efbeb2ee4812c2bdcefced989",
     "2adcd6b11194b4ee15e1bd14918b0323fca72529f3add54f2f00b52e58909ffa",
-    "a50e87980a19fa72f2e214d58251b71d8802eb85a6baab245268ec1c88d7de1f"
+    "a50e87980a19fa72f2e214d58251b71d8802eb85a6baab245268ec1c88d7de1f",
+    "27d3f26e66bf0a97315907940e8e247959bdb41613f85a817502d56d2e4b188d"
   ],
   "plugins/Sky2PartyEditor/LICENSES.txt": [
     "5fb71140635e1232e9214d38c910111b23fa5c4d6267390c6038b2c61afa244a",
     "5dc96665e0a320adb75ced999877cf5f5d2d57c9d217aa9836d2b899b5fe5d82",
-    "40af3ff7e294d7170c902deb49b1afb4689f718deed8b84b05003a137c9da9fe"
+    "40af3ff7e294d7170c902deb49b1afb4689f718deed8b84b05003a137c9da9fe",
+    "e56bbe84f3e0c86c187d214c9cf0ccae989d16ec53f1439b635cf2b60c3022b0"
   ],
-  "xinput1_4.dll": [],
-  "Sky2PartyEditor/LICENSES.txt": []
+  "xinput1_4.dll": [
+    "2935a5ea88adacf8d2b75c3aa5def3c30df21e41e9e9fbebc1adb88951bfec09"
+  ],
+  "Sky2PartyEditor/LICENSES.txt": [
+    "e56bbe84f3e0c86c187d214c9cf0ccae989d16ec53f1439b635cf2b60c3022b0"
+  ]
 }
