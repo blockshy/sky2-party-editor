@@ -3,6 +3,13 @@ project(Sky2PartyEditor VERSION 0.6.0 LANGUAGES C CXX)
 
 # 纯逻辑测试不需要游戏资源；插件仅支持已审计的 Windows x64 构建。
 option(PARTY_BUILD_MOD "同时构建独立 XInput 版与 ASI 队伍插件" ON)
+# 第三分发独立开关：没有相邻 Hub SDK 的旧仓库仍可原样构建 ASI/Standalone。
+set(PARTY_HUB_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sky2-mod-hub/sdk" CACHE PATH "Sky2 Mod Hub ABI SDK 目录")
+set(PARTY_HUB_MODULE_DEFAULT OFF)
+if(WIN32 AND MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND EXISTS "${PARTY_HUB_SDK_DIR}/sky2_hub.h")
+    set(PARTY_HUB_MODULE_DEFAULT ON)
+endif()
+option(PARTY_BUILD_HUB_MODULE "额外构建使用统一宿主的队伍模块" ${PARTY_HUB_MODULE_DEFAULT})
 set(PARTY_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.deps" CACHE PATH "锁定版本的第三方源码目录")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -60,6 +67,29 @@ if(PARTY_BUILD_MOD)
     set_target_properties(Sky2PartyEditorStandalone PROPERTIES OUTPUT_NAME xinput1_4 PREFIX "")
 endif()
 
+# 模块版独立编译业务源，不能复用包含私有 MinHook/ImGui 的 party_runtime 对象。
+# SDK hooks 目录优先级高于第三方头，把游戏 hook 统一交给宿主；模块不链接图形库。
+if(PARTY_BUILD_HUB_MODULE)
+    if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+        message(FATAL_ERROR "Hub module requires Windows x64 and MSVC.")
+    endif()
+    if(NOT EXISTS "${PARTY_HUB_SDK_DIR}/sky2_hub.h" OR NOT EXISTS "${PARTY_HUB_SDK_DIR}/hooks/MinHook.h")
+        message(FATAL_ERROR "Hub SDK missing; set PARTY_HUB_SDK_DIR or disable PARTY_BUILD_HUB_MODULE.")
+    endif()
+    add_library(Sky2PartyEditorModule SHARED
+        native/module_entry.cpp native/hub_panel.cpp native/runtime.cpp
+        native/party_native.cpp native/anywhere_menu.cpp native/control_state.cpp
+        native/roster_service.cpp native/roster_prepare.cpp native/fixed_member_guard.cpp
+        native/game_language.cpp native/game_names.cpp)
+    target_include_directories(Sky2PartyEditorModule BEFORE PRIVATE "${PARTY_HUB_SDK_DIR}/hooks" "${PARTY_HUB_SDK_DIR}" native)
+    target_compile_definitions(Sky2PartyEditorModule PRIVATE SKY2_HUB_MODULE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
+        SKY2_PARTY_VERSION="${PROJECT_VERSION}")
+    target_compile_options(Sky2PartyEditorModule PRIVATE /utf-8 /W4 /EHsc)
+    target_link_options(Sky2PartyEditorModule PRIVATE /Brepro /DEBUG:NONE)
+    target_link_libraries(Sky2PartyEditorModule PRIVATE bcrypt user32)
+    set_target_properties(Sky2PartyEditorModule PROPERTIES OUTPUT_NAME "Sky2PartyEditor.module" PREFIX "")
+endif()
+
 # 原生纯逻辑测试由各模块通过 add_test 注册；安装隔离测试无需连接游戏。
 if(BUILD_TESTING)
     add_executable(party_patch_tests tests/patch_tests.cpp)
@@ -92,6 +122,21 @@ if(BUILD_TESTING)
         add_test(NAME party_${logic_test}_tests COMMAND party_${logic_test}_tests)
     endforeach()
     if(WIN32 AND MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+        if(PARTY_BUILD_HUB_MODULE)
+            # 假宿主驱动真实页面代码，验证确认/切页/失焦/世代取消及动作安全边界。
+            add_executable(party_hub_panel_tests tests/hub_panel_tests.cpp native/hub_panel.cpp)
+            target_include_directories(party_hub_panel_tests PRIVATE native "${PARTY_HUB_SDK_DIR}")
+            target_compile_definitions(party_hub_panel_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN SKY2_PARTY_VERSION="${PROJECT_VERSION}")
+            target_compile_options(party_hub_panel_tests PRIVATE /utf-8 /W4 /EHsc)
+            add_test(NAME party_hub_panel_tests COMMAND party_hub_panel_tests)
+            # 装载真实产物，确保查询无副作用、ABI 拒绝、错误宿主拒绝及不安装任何 hook。
+            add_executable(party_hub_module_tests tests/hub_module_tests.cpp)
+            target_include_directories(party_hub_module_tests PRIVATE "${PARTY_HUB_SDK_DIR}")
+            target_compile_definitions(party_hub_module_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+            target_compile_options(party_hub_module_tests PRIVATE /utf-8 /W4 /EHsc)
+            add_test(NAME party_hub_module_tests COMMAND party_hub_module_tests "$<TARGET_FILE:Sky2PartyEditorModule>")
+            add_test(NAME party_hub_registration_failure COMMAND party_hub_module_tests "$<TARGET_FILE:Sky2PartyEditorModule>" reject-registration)
+        endif()
         add_executable(party_instruction_tests tests/instruction_tests.cpp)
         target_include_directories(party_instruction_tests PRIVATE native)
         target_compile_options(party_instruction_tests PRIVATE /utf-8 /W4)

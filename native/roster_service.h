@@ -35,6 +35,10 @@ struct RosterSnapshot {
 bool ConfigureRosterService(uintptr_t executableBase) noexcept;
 RosterSnapshot ReadRosterSnapshot() noexcept;
 bool QueueAddMember(uint32_t id) noexcept;
+// 停用请求到来时先关闭新请求入口并作废未消费队列。已进入原生调用的操作
+// 不强行中断；协调器在同一游戏线程下一次安全帧才确认整个模块已经停用。
+void SetRosterRequestsEnabled(bool enabled) noexcept;
+bool RosterServiceIdle() noexcept;
 
 // 调用者必须在原生 0x2D4D40(context, mask) 返回之后调用，传入它的原始返回值。
 // 任何原生输入已消费的帧均不执行加入。设置队列用独立谓词：编成专属剧情锁

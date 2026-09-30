@@ -207,7 +207,7 @@ class InstallationBoundaryTests(unittest.TestCase):
     def test_package_contains_only_declared_player_files(self):
         expected = {
             "README.md", "CHANGELOG.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
-            "docs/INSTALLATION.md", "docs/USAGE.md", "docs/TESTING.md", "tools/Common.ps1",
+            "docs/INSTALLATION.md", "docs/USAGE.md", "docs/TESTING.md", "docs/HUB_MODULE.md", "tools/Common.ps1",
             "tools/Install-Mod.ps1", "tools/Uninstall-Mod.ps1", "tools/manifest.json",
             "dist/plugins/Sky2PartyEditor.asi", "dist/plugins/Sky2PartyEditor/LICENSES.txt",
         }

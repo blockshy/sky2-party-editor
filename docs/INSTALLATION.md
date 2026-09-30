@@ -4,6 +4,8 @@
 
 本指南适用于 **0.6.0**，也包含从 0.5.0 升级的步骤。下载 [0.6.0 Standalone 独立版或 ASI 插件版](https://github.com/blockshy/sky2-party-editor/releases/tag/v0.6.0)，完整解压后再操作。两种分发功能相同，不能同时安装。
 
+当前源码另提供 [Sky2 Mod Hub](https://github.com/blockshy/sky2-mod-hub) 模块版。它使用宿主的安装、备份和回滚工具，具体路径及从原入口切换的方法见 [Hub 模块版](HUB_MODULE.md)。下文 `Install-Mod.ps1` / `Uninstall-Mod.ps1` 只管理原 Standalone / ASI，不用于安装 HubModule；同一队伍功能三种入口不能混装。
+
 ## 兼容版本
 
 游戏目录须包含 `sora_2nd.exe`。支持 Windows x64、DirectX 11，已核验 EXE 的 SHA-256 为：

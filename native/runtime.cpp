@@ -2,7 +2,9 @@
 // 两种入口共用控制面板与输入，数据目录跟随入口所在目录，保留前一层调用链。
 #include "runtime.h"
 #include "control_state.h"
+#ifndef SKY2_HUB_MODULE
 #include "panel.h"
+#endif
 #include "game_language.h"
 #include "game_names.h"
 #include <bcrypt.h>
@@ -47,6 +49,13 @@ bool PlainParentChain(std::wstring path) {
 }
 
 bool PrepareFolder() {
+#ifdef SKY2_HUB_MODULE
+    // Hub 已选择该模块原 ASI 的数据目录；仍执行本模块既有的链接防护。
+    // 不能按 module.dll 的嵌套目录推导新路径，否则会丢失玩家原来的设置。
+    const auto separator = dataFolder.find_last_of(L"\\/");
+    return separator != std::wstring::npos && PlainParentChain(dataFolder.substr(0, separator)) &&
+        PlainDirectory(dataFolder);
+#else
     wchar_t path[MAX_PATH]{};
     const auto length = GetModuleFileNameW(moduleHandle, path, MAX_PATH);
     if (!length || length >= MAX_PATH) return false;
@@ -58,6 +67,7 @@ bool PrepareFolder() {
     if (!PlainParentChain(parent)) return false;
     dataFolder = parent + L"\\Sky2PartyEditor";
     return PlainDirectory(dataFolder);
+#endif
 }
 
 bool SupportedExecutable() {
@@ -84,7 +94,7 @@ bool SupportedExecutable() {
     return std::strcmp(hash, kExecutableHash) == 0;
 }
 
-DWORD WINAPI Initialize(void*) noexcept {
+bool InitializeRuntime() noexcept {
     try {
         // 保持初始化线程与单实例保护的生命周期，不支持运行中卸载或重新加载。
         // 主菜单挂钩会跳转回本模块，因此不能在游戏运行时卸载插件。
@@ -137,16 +147,41 @@ DWORD WINAPI Initialize(void*) noexcept {
             Log("Party control validation or hook installation failed; no initial feature request applied.");
             return 0;
         }
+#ifndef SKY2_HUB_MODULE
         Log(InstallPanel(moduleHandle, base) ? "Party control panel installed; F11 or View + LS." :
             "Party panel initialization failed; inspect diagnostics.");
+#else
+        // 模块只提供业务服务；所有图形资源及输入均由 Hub 唯一持有。
+        Log("Party Hub module business services initialized; UI and input belong to Hub.");
+#endif
+        return true;
     } catch (...) {
         Log("Initialization failed; no further installation attempted.");
     }
     return 0;
 }
+#ifndef SKY2_HUB_MODULE
+DWORD WINAPI Initialize(void*) noexcept {
+    InitializeRuntime();
+    return 0;
+}
+#endif
 }
 
 void ConfigureModule(HMODULE module) noexcept { moduleHandle = module; }
+
+#ifdef SKY2_HUB_MODULE
+bool InitializeHubRuntime(HMODULE module, const wchar_t* dataDirectory) noexcept {
+    if (!module || !dataDirectory || !*dataDirectory) return false;
+    try {
+        moduleHandle = module;
+        dataFolder = dataDirectory;
+        return InitializeRuntime();
+    } catch (...) {
+        return false;
+    }
+}
+#endif
 
 bool SaveFeaturePreferences(uint32_t features) noexcept {
     try {
@@ -210,11 +245,13 @@ void Log(const char* message) noexcept {
 }
 
 void Start() noexcept {
+#ifndef SKY2_HUB_MODULE
     static std::once_flag once;
     try {
         std::call_once(once, [] {
             if (HANDLE thread = CreateThread(nullptr, 0, Initialize, nullptr, 0, nullptr)) CloseHandle(thread);
         });
     } catch (...) { /* ASI 装载入口不得把 C++ 异常传播给通用 Loader。 */ }
+#endif
 }
 }

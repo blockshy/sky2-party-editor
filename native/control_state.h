@@ -41,4 +41,9 @@ ControlSnapshot ReadControlSnapshot() noexcept;
 void RequestFeatureMask(uint32_t features) noexcept;
 // 启动时一次配置：参数来自本插件自己的INI，而非角色存档。只创建已核对的常驻协调挂钩。
 bool InstallControlService(uintptr_t executableBase, uint32_t initialFeatures) noexcept;
+// Hub 的运行活动与玩家功能偏好分开：停用在安全游戏帧恢复代码原值，但不
+// 把原偏好写成全关。DLL、菜单 hook、协调器和单实例保护始终保留到进程退出。
+bool RequestModuleActivity(bool enabled) noexcept;
+int32_t ModuleActivityState() noexcept; // 0 停用、1 启用、2 启用中、3 停用中。
+ControlMessage ModuleActivityMessage() noexcept;
 }

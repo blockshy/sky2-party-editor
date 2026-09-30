@@ -1,18 +1,25 @@
 <#
 .SYNOPSIS
-按 Standalone/ASI 分发生成精简公开发行包，只纳入明确白名单文件。
+按 Standalone/ASI/HubModule 分发生成精简公开发行包，只纳入明确白名单文件。
 .DESCRIPTION
-必须同时提供本分发与同版本另一入口的构建产物。另一入口只用于PE身份校验和
-冲突指纹，不随当前包分发；安装器据此拒绝同产品双入口混装。不打包研究或设置。
+Standalone/ASI 必须同时提供本分发与同版本另一入口的构建产物。另一入口只用于
+PE 身份校验和冲突指纹，不随当前包分发。HubModule 委托专用白名单脚本，使用
+宿主安装工具；三种包都不打包研究、玩家设置或存档。
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)][Alias('AsiPath','DllPath')][string]$BinaryPath,
-    [Parameter(Mandatory=$true)][ValidateSet('Standalone','ASI')][string]$Distribution,
-    [Parameter(Mandatory=$true)][string]$CompanionBinaryPath,
+    [Parameter(Mandatory=$true)][ValidateSet('Standalone','ASI','HubModule')][string]$Distribution,
+    [string]$CompanionBinaryPath,
     [string]$OutputDirectory
 )
 $ErrorActionPreference='Stop'
+# 模块采用宿主安装器管理；不扩展旧双分发安装器的文件权限或归属范围。
+if ($Distribution -eq 'HubModule') {
+    & (Join-Path $PSScriptRoot 'Package-HubModule.ps1') -BinaryPath $BinaryPath -OutputDirectory $OutputDirectory
+    return
+}
+if (-not $CompanionBinaryPath) { throw 'Standalone/ASI 打包仍必须提供 CompanionBinaryPath。' }
 . (Join-Path $PSScriptRoot 'Common.ps1')
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $otherDistribution = if ($Distribution -eq 'ASI') { 'Standalone' } else { 'ASI' }
@@ -50,7 +57,7 @@ foreach ($scriptName in @('Install-Mod.ps1', 'Uninstall-Mod.ps1', 'Common.ps1'))
     [IO.File]::WriteAllText((Join-Path $stage ('tools/' + $scriptName)), $body, [Text.UTF8Encoding]::new($true))
 }
 foreach ($document in @('README.md','CHANGELOG.md','LICENSE','THIRD_PARTY_NOTICES.md',
-    'docs/INSTALLATION.md','docs/USAGE.md','docs/TESTING.md')) {
+    'docs/INSTALLATION.md','docs/USAGE.md','docs/TESTING.md','docs/HUB_MODULE.md')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $document) -Destination (Join-Path $stage $document)
 }
 $known = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'Known-Files.json') | ConvertFrom-Json
