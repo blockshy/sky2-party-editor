@@ -9,6 +9,10 @@
 #include "game_language.h"
 #include "game_names.h"
 #include "panel_fonts.h"
+#include "party_page.h"
+#include "standalone_ui/ui.h"
+#include "standalone_ui/input.h"
+#include "standalone_ui/hotkeys.h"
 #include <d3d11.h>
 #include <dxgi.h>
 #include <MinHook.h>
@@ -34,44 +38,19 @@ std::atomic<bool> renderReady{false};
 ImGuiContext* context = nullptr;
 ID3D11Device* device = nullptr;
 ID3D11DeviceContext* deviceContext = nullptr;
+bool dx11Ready = false;
 HWND gameWindow = nullptr;
 std::recursive_mutex renderLock;
 ImGuiStyle baseStyle{};
-panelinput::Confirmation confirmation;
-size_t selected = 0;
-uint64_t previousGeneration = 0;
-bool wasOpen = false, scrollSelection = false, submissionRejected = false;
-constexpr size_t featureCount = 4;
-constexpr ImVec4 accent{0.43f, 0.87f, 0.78f, 1.0f};
-constexpr ImVec4 warning{1.0f, 0.76f, 0.38f, 1.0f};
-constexpr Text featureTexts[] = {Text::FeatureFixedMembers, Text::FeatureAnywhere,
-    Text::FeatureUnavailable, Text::FeatureUnjoined};
+sky2solo::WindowState windowState;
+sky2solo::HotkeyEditorState hotkeyEditor;
 std::array<bool, kLanguageCount> fontComplete{};
 
-// 所有角色标签均从当前语言的原生表按稳定 ID 取得。资源不可用时明确显示编号，
-// 不使用另一语言的姓名、不缩写军衔或称谓，也不影响名单和二次确认所绑定的身份。
-std::string DisplayCharacter(uint32_t id) {
-    if (const auto* name = CharacterNameFor(CurrentLanguage(), id)) return name;
-    char buffer[96]{};
-    std::snprintf(buffer, sizeof(buffer), Tr(Text::CharacterIdFormat), id);
-    return buffer;
+int32_t SKY2_CALL LocalLanguage() noexcept {
+    constexpr int values[]{0, 2, 3, 1, 4, 5, 6, 7};
+    const auto current = static_cast<unsigned>(CurrentLanguage());
+    return current < std::size(values) ? values[current] : 0;
 }
-
-const char* ControlMessageText(ControlMessage message) noexcept {
-    switch (message) {
-    case ControlMessage::None: return "";
-    case ControlMessage::FixedMembersNeedRestoring: return Tr(Text::ControlFixedBlocked);
-    case ControlMessage::CannotVerifyParties: return Tr(Text::ControlFixedUnknown);
-    case ControlMessage::Applied: return Tr(Text::ControlApplied);
-    case ControlMessage::AppliedNotSaved: return Tr(Text::ControlSaveFailed);
-    case ControlMessage::ApplyFailed: return Tr(Text::ControlApplyFailed);
-    case ControlMessage::ServiceError: return Tr(Text::ControlException);
-    case ControlMessage::WaitingForExploration: return Tr(Text::ControlWaiting);
-    case ControlMessage::WaitingForSave: return Tr(Text::ControlLoadWait);
-    }
-    return "";
-}
-
 void CheckFontCoverage() {
     for (unsigned index = 0; index < kLanguageCount; ++index) {
         const auto language = static_cast<Language>(index);
@@ -88,53 +67,6 @@ void CheckFontCoverage() {
             std::snprintf(diagnostic, sizeof(diagnostic), "Party font coverage incomplete for language index %u.", index);
             Log(diagnostic);
         }
-    }
-}
-
-bool ChestExpected(HMODULE module) {
-    if (GetModuleHandleW(L"Sky2ChestTracker.asi")) return true;
-    wchar_t path[MAX_PATH]{};
-    const auto length = GetModuleFileNameW(module, path, MAX_PATH);
-    if (!length || length >= MAX_PATH) return false;
-    const std::wstring ownPath(path, length);
-    const auto separator = ownPath.find_last_of(L"\\/");
-    if (separator == std::wstring::npos) return false;
-    // 独立版不是 ASI Loader；旁边残留的未加载 ASI 文件不应让它等待超时。
-    // 已实际加载的宝箱模块在上方始终被识别。正常多 Mod 安装使用同目录 ASI，
-    // 此时仍在宝箱尚未映射前检测文件，保留两套 Present 挂钩的严格就绪顺序。
-    const auto extension = ownPath.find_last_of(L'.');
-    if (extension == std::wstring::npos || _wcsicmp(ownPath.c_str() + extension, L".asi") != 0) return false;
-    const auto chest = ownPath.substr(0, separator + 1) + L"Sky2ChestTracker.asi";
-    const auto attributes = GetFileAttributesW(chest.c_str());
-    return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-bool WaitForChestPresent(HMODULE module, uintptr_t executableBase) noexcept {
-    try {
-        if (!ChestExpected(module)) return true;
-        Log("Party panel: waiting for Chest's completed Present installation before creating our trampoline.");
-        const uint64_t start = GetTickCount64();
-        for (;;) {
-            const auto chest = GetModuleHandleW(L"Sky2ChestTracker.asi");
-            const void* current = *reinterpret_cast<void* const volatile*>(executableBase + 0x8BB6E8);
-            MEMORY_BASIC_INFORMATION information{};
-            if (chest && VirtualQuery(current, &information, sizeof(information)) == sizeof(information) &&
-                information.AllocationBase == chest) {
-                // 已发布 Chest 0.6.0 严格在 InstallOverlay(Create+Enable) 完成后安装此 IAT。
-                // 以这个实际完成状态作为就绪信号，避免两个独立 MinHook 库同时从旧原字节
-                // 建 trampoline、随后后安装者绕过前一个面板。不能用固定睡眠猜测初始化完成。
-                Log("Party panel: Chest input bridge confirms its Present hook is fully installed.");
-                return true;
-            }
-            if (GetTickCount64() - start >= 10000) {
-                Log("Party panel disabled: Chest initialization did not reach the verified ready state; no Present/input hooks installed.");
-                return false;
-            }
-            Sleep(10); // 只限制查询频率，是否继续由上面的实际就绪条件决定。
-        }
-    } catch (...) {
-        Log("Party panel disabled: could not verify companion initialization state.");
-        return false;
     }
 }
 
@@ -197,20 +129,11 @@ bool InitializeGui(IDXGISwapChain* swap) {
     // 一次合并八语所需本机字库；热切换只选择文本，不重建图集或重置当前行。
     LoadPanelFonts(io);
     CheckFontCoverage();
-    ImGui::StyleColorsDark();
-    auto& style = ImGui::GetStyle();
-    style.WindowRounding = 9.0f;
-    style.WindowPadding = ImVec2(18, 14);
-    style.ItemSpacing = ImVec2(8, 7);
-    style.CellPadding = ImVec2(6, 5);
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.035f, 0.07f, 0.085f, 0.97f);
-    style.Colors[ImGuiCol_Border] = ImVec4(0.3f, 0.65f, 0.61f, 0.85f);
-    style.Colors[ImGuiCol_Header] = ImVec4(0.12f, 0.35f, 0.33f, 0.9f);
-    style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.16f, 0.43f, 0.39f, 1.0f);
-    style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.2f, 0.49f, 0.44f, 1.0f);
-    baseStyle = style;
+    sky2solo::ConfigureTheme();
+    baseStyle = ImGui::GetStyle();
     const bool win32 = ImGui_ImplWin32_Init(gameWindow);
-    if (!win32 || !ImGui_ImplDX11_Init(device, deviceContext)) {
+    dx11Ready = win32 && ImGui_ImplDX11_Init(device, deviceContext);
+    if (!dx11Ready) {
         if (win32) ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext(context); context = nullptr;
         deviceContext->Release(); deviceContext = nullptr;
@@ -224,390 +147,150 @@ bool InitializeGui(IDXGISwapChain* swap) {
     return true;
 }
 
-void ChangeSelection(size_t value) {
-    if (selected == value) return;
-    selected = value;
-    confirmation.Cancel();
-    submissionRejected = false;
-    scrollSelection = true;
+// Header 和 Main 使用独立业务页面；页面只提交原有安全队列，不能在 Present
+// 线程写入角色或游戏指令。独立壳的第二侧栏集中说明，避免业务页重复堆文案。
+void DrawHeader(void*, const Sky2Frame& frame, int section) {
+    if (section == 0) { auto page = frame; page.page_active = 1; DrawPartyHeader(*sky2solo::UiApi(), page); }
 }
-const char* RoleAction(const RosterEntry& member) {
-    if (member.needsPreparation) return Tr(Text::PrepareAndAdd);
-    return Tr(member.hidden ? Text::RevealReserve : Text::AddReserve);
+void DrawContent(void*, const Sky2Frame& frame, int section) {
+    if (section == 0) { auto page = frame; page.page_active = 1; DrawPartyPage(*sky2solo::UiApi(), page); return; }
+    if (section == 2) { sky2solo::DrawHotkeySettings(hotkeyEditor, LocalLanguage()); return; }
+    const auto* ui = sky2solo::UiApi();
+    ui->text_wrapped(Tr(Text::RoleUsageNote));
+    ui->separator();
+    ui->text_wrapped(Tr(Text::SaveNote));
+    ui->text_wrapped(Tr(Text::FixedRestoreNote));
+    if (!PanelControllerReady()) ui->text_wrapped(PanelInputStatus());
 }
-const char* RoleState(const RosterEntry& member) {
-    if (member.hidden) return Tr(Text::HiddenReserve);
-    if (member.inParty) return Tr(member.unavailable ? Text::Unavailable : Text::InRoster);
-    if (!member.initialized && !member.needsPreparation) return Tr(Text::DataNotReady);
-    return Tr(Text::Unjoined);
+void SectionChanged(void*, int) {
+    // 切离业务页取消角色确认，切离快捷键页丢弃尚未保存的候选；保存只调整
+    // Mod 自己的输入规则，不经过角色写入队列，也不修改游戏的原生键位。
+    PartyPageVisibilityChanged(false); sky2solo::ResetHotkeyEditor(hotkeyEditor);
 }
-bool CanAdd(const ControlSnapshot& snapshot, const RosterEntry& member) {
-    return snapshot.appliedStateKnown && (snapshot.appliedFeatures & FeatureUnjoined) &&
-        snapshot.roster.ready && snapshot.roster.canEdit && member.canAdd &&
-        snapshot.roster.pendingId == kNoRosterId;
-}
-void Activate(const ControlSnapshot& snapshot, uint64_t now) {
-    if (selected < featureCount) {
-        confirmation.Cancel();
-        submissionRejected = false;
-        RequestFeatureMask(snapshot.requestedFeatures ^ (1u << selected));
-        return;
+void DrawPanel(float scale) {
+    const char* sections[]{
+        Localize("队伍编辑", "パーティー編集", "Party editor", "隊伍編輯", "Gruppe bearbeiten",
+            "Éditeur d’équipe", "Editor de grupo", "파티 편집"),
+        Localize("使用说明", "使い方", "Instructions", "使用說明", "Anleitung", "Instructions", "Instrucciones", "사용 안내"),
+        Localize("快捷键", "ショートカット", "Shortcuts", "快捷鍵", "Tastenkürzel", "Raccourcis", "Atajos", "단축키")};
+    const char* description = Localize("调整编成功能，安全管理角色后备。", "編成機能と控えメンバーを管理します。",
+        "Configure party features and manage reserve members.", "調整編成功能，安全管理角色後備。",
+        "Gruppenfunktionen und Reservemitglieder verwalten.", "Réglez les fonctions d’équipe et gérez les réservistes.",
+        "Configura las funciones de grupo y gestiona los miembros de reserva.", "편성 기능과 대기 멤버를 관리합니다.");
+    const auto display = ImGui::GetIO().DisplaySize;
+    Sky2Frame frame{sizeof(Sky2Frame), display.x, display.y, scale, GetTickCount64(),
+        PanelInteractive() ? 1 : 0, PanelOpen() ? 1 : 0, windowState.section == 0 ? 1 : 0,
+        PanelUsingController() ? 1 : 0, 0};
+    TickPartyPage(frame);
+    if (!PanelOpen()) return;
+    sky2solo::WindowSpec spec{};
+    spec.id = "Sky2PartyEditorPanel"; spec.title = sections[0]; spec.description = description;
+    spec.sections = sections; spec.sectionCount = 3; spec.header = &DrawHeader;
+    spec.draw = &DrawContent; spec.changed = &SectionChanged; spec.language = LocalLanguage();
+    if (!sky2solo::DrawWindow(windowState, spec, frame)) {
+        SetPanelOpen(false); PartyPageVisibilityChanged(false);
     }
-    const auto index = selected - featureCount;
-    if (index >= snapshot.roster.members.size()) return;
-    const auto& member = snapshot.roster.members[index];
-    if (!CanAdd(snapshot, member)) { confirmation.Cancel(); return; }
-    // 二次确认同时绑定角色 ID、场景/存档代次和八秒期限；不会跨读档沿用授权。
-    if (confirmation.Press(member.id, snapshot.roster.generation, now))
-        submissionRejected = !QueueAddMember(member.id);
-}
-void Hint(const char* key, const char* label) {
-    ImGui::TextColored(accent, "%s", key);
-    ImGui::SameLine();
-    ImGui::TextUnformatted(label);
 }
 
-bool DrawSelectionRow(const char* label, bool isSelected) {
-    // ImGui 默认也把未选中但被鼠标悬停的 Selectable 涂成绿色。手柄/键盘换行或
-    // 列表滚动时，静止鼠标会留在另一行，形成两条看似都能接收 A/Enter 的选中条。
-    // 绿色仅表示唯一的 selected；未选中的悬停/按压用中性灰提示可点击性。
-    // 这里只改变局部绘制样式，不让悬停修改选择，更不会取消或消费角色二次确认。
-    const auto selection = ImGui::GetStyleColorVec4(ImGuiCol_Header);
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered,
-        isSelected ? selection : ImVec4(0.14f, 0.17f, 0.19f, 0.95f));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive,
-        isSelected ? selection : ImVec4(0.20f, 0.23f, 0.25f, 1.0f));
-    // ### 后的标识恒定，配合调用方 PushID 保持每行身份；切换显示语言不会
-    // 令活动控件换成另一个角色。名单次序始终由稳定角色 ID 决定。
-    const auto widget = std::string(label) + "###selection";
-    const bool pressed = ImGui::Selectable(widget.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns);
-    ImGui::PopStyleColor(2);
-    return pressed;
-}
-
-void DrawFixedMemberWarning(const ControlSnapshot& snapshot) {
-    const auto& guard = snapshot.fixedGuard;
-    // 只展示游戏线程刚完成的有效风险快照。过期、失败或零风险不额外占用面板，
-    // 也不据此宣称可以安全卸载；关闭功能时的最终复核仍由控制服务执行。
-    if (!snapshot.fixedGuardFresh || !guard.valid || guard.riskCount == 0) return;
-    std::string summary = Tr(Text::FixedWarningPrefix);
-    const auto count = std::min<size_t>({guard.memberCount, guard.members.size(), 4});
-    for (size_t index = 0; index < count; ++index) {
-        const auto& member = guard.members[index];
-        char identity[256]{};
-        const auto name = DisplayCharacter(member.id);
-        std::snprintf(identity, sizeof(identity), Tr(Text::FixedMemberFormat), member.partyIndex + 1, name.c_str());
-        if (index) summary += Tr(Text::ListSeparator);
-        summary += identity;
+// 同一窗口可能在片头后换用新的 D3D11 设备。ImGui 上下文和页面选择继续保留，
+// 仅重建 DX11 后端；不得用旧设备为新设备的后缓冲创建 RTV。
+bool BindSwapDevice(IDXGISwapChain* swap) {
+    ID3D11Device* current = nullptr;
+    if (FAILED(swap->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&current))) || !current) return false;
+    if (current == device) {
+        current->Release();
+        // 上次重绑可能在后端分配阶段失败，不能只因设备指针相同就宣告恢复。
+        if (!dx11Ready) dx11Ready = ImGui_ImplDX11_Init(device, deviceContext);
+        return dx11Ready;
     }
-    // 显示条数有意限制为四条，避免多队伍记录挤掉操作区；总风险数仍明确保留。
-    if (guard.riskCount > count) {
-        char remainder[48]{};
-        std::snprintf(remainder, sizeof(remainder), Tr(Text::FixedMoreFormat), guard.riskCount);
-        summary += remainder;
-    }
-    ImGui::PushStyleColor(ImGuiCol_Text, warning);
-    ImGui::TextWrapped("%s", summary.c_str());
-    ImGui::PopStyleColor();
-    ImGui::TextWrapped("%s", Tr(Text::FixedRestoreNote));
-}
-
-const char* LevelHeading() noexcept {
-    if (const auto* term = GameTermFor(CurrentLanguage(), GameTerm::Level)) return term;
-    return Tr(Text::LevelColumn);
-}
-
-std::string FeatureStateLabel(const ControlSnapshot& snapshot, size_t index) {
-    const bool requested = (snapshot.requestedFeatures & (1u << index)) != 0;
-    const bool applied = (snapshot.appliedFeatures & (1u << index)) != 0;
-    char buffer[512]{};
-    if (!snapshot.appliedStateKnown)
-        std::snprintf(buffer, sizeof(buffer), Tr(Text::UnknownStateFormat), Tr(requested ? Text::Enable : Text::Disable));
-    else if (requested != applied)
-        std::snprintf(buffer, sizeof(buffer), Tr(Text::PendingStateFormat), Tr(applied ? Text::On : Text::Off),
-            Tr(requested ? Text::Enable : Text::Disable));
-    else return Tr(applied ? Text::On : Text::Off);
-    return buffer;
-}
-
-struct PanelLayout {
-    float width = 0, name = 0, level = 0, state = 0, featureState = 0;
-};
-
-PanelLayout MeasurePanel(const ControlSnapshot& snapshot, float scale) {
-    // 使用当前字体的实际宽度，而不是“中文字数”估算。中日韩名称和带军衔的
-    // 欧洲语言名称、手柄键位提示都会计入；切换语言时只调整尺寸，不清空选中行。
-    const auto widthOf = [](const char* text) { return ImGui::CalcTextSize(text).x; };
-    const auto widest = [&](std::initializer_list<Text> texts) {
-        float width = 0;
-        for (const auto text : texts) width = std::max(width, widthOf(Tr(text)));
-        return width;
-    };
-    PanelLayout result;
-    result.name = widthOf(Tr(Text::CharacterColumn));
-    for (const auto& definition : kRosterDefinitions)
-        result.name = std::max(result.name, widthOf(DisplayCharacter(definition.id).c_str()));
-    result.level = std::max(widthOf(LevelHeading()), widthOf("999"));
-    result.state = widest({Text::StatusColumn, Text::HiddenReserve, Text::Unavailable,
-        Text::InRoster, Text::DataNotReady, Text::Unjoined, Text::WaitingData});
-    const float action = widest({Text::ActionColumn, Text::PrepareAndAdd, Text::RevealReserve,
-        Text::AddReserve, Text::WaitingExecution, Text::ConfirmAgain, Text::AdjustInGame});
-    float feature = 0;
-    for (size_t index = 0; index < featureCount; ++index) {
-        feature = std::max(feature, widthOf(Tr(featureTexts[index])));
-        result.featureState = std::max(result.featureState, widthOf(FeatureStateLabel(snapshot, index).c_str()));
-    }
-    const auto& style = ImGui::GetStyle();
-    const float cell = style.CellPadding.x * 2 + 10 * scale;
-    result.name += cell; result.level += cell; result.state += cell; result.featureState += cell;
-    const bool pad = PanelUsingController();
-    const float shortcutLeft = std::max(widthOf(pad ? "View + LS" : "F11") + widthOf(Tr(Text::ShowHide)),
-        widthOf(pad ? "A" : "Enter") + widthOf(Tr(Text::ToggleConfirm)));
-    const float shortcutRight = std::max(widthOf(pad ? Tr(Text::DpadUpDown) : "↑ / ↓") + widthOf(Tr(Text::Select)),
-        widthOf(pad ? "B" : "Esc") + widthOf(Tr(Text::Close)));
-    const float padding = style.WindowPadding.x * 2 + style.ScrollbarSize + 24 * scale;
-    // 名单位于独立 child 内，除了外窗还需再扣一组 WindowPadding。遗漏此项会
-    // 让字体较大的法语动作列少约26px，即便整扇窗口没有横向溢出仍会裁掉末尾。
-    const float rosterPadding = style.WindowPadding.x * 2;
-    const float content = std::max({feature + result.featureState + cell,
-        result.name + result.level + result.state + action + cell + rosterPadding,
-        2 * std::max(shortcutLeft, shortcutRight) + style.ItemSpacing.x * 4});
-    result.width = std::min(std::max(700 * scale, content + padding), ImGui::GetIO().DisplaySize.x - 28);
-    return result;
-}
-
-std::string FooterMessage(const ControlSnapshot& snapshot, size_t roleIndex, uint64_t now) {
-    if (roleIndex < snapshot.roster.members.size() &&
-        confirmation.Armed(snapshot.roster.members[roleIndex].id, snapshot.roster.generation, now)) {
-        const auto& member = snapshot.roster.members[roleIndex];
-        char text[640]{};
-        const auto name = DisplayCharacter(member.id);
-        std::snprintf(text, sizeof(text), Tr(Text::ConfirmRoleFormat), name.c_str(), RoleAction(member));
-        return text;
-    }
-    if (submissionRejected) return Tr(Text::StateChanged);
-    if (snapshot.roster.lastResult != RosterResult::None) return RosterResultText(snapshot.roster.lastResult);
-    if (!(snapshot.appliedFeatures & FeatureUnjoined)) return Tr(Text::EnableUnjoinedNote);
-    if (!snapshot.roster.canEdit) return RosterBlockReasonText(snapshot.roster.blockReason);
-    return Tr(Text::RoleUsageNote);
-}
-
-void DrawPanel(uint32_t actions, const ControlSnapshot& snapshot, float scale) {
-    const uint64_t now = GetTickCount64();
-    const bool visible = PanelOpen();
-    const bool generationChanged = previousGeneration != snapshot.roster.generation;
-    if (!visible || !wasOpen || generationChanged || !snapshot.roster.canEdit)
-        confirmation.Cancel();
-    if (generationChanged) submissionRejected = false;
-    previousGeneration = snapshot.roster.generation;
-    wasOpen = visible;
-    if (!visible) return;
-    constexpr size_t rowCount = featureCount + kRosterDefinitions.size();
-    if ((actions & (panelinput::Previous | panelinput::Next)) == panelinput::Previous)
-        ChangeSelection((selected + rowCount - 1) % rowCount);
-    if ((actions & (panelinput::Previous | panelinput::Next)) == panelinput::Next)
-        ChangeSelection((selected + 1) % rowCount);
-    if (actions & panelinput::Activate) Activate(snapshot, now);
-
-    auto& io = ImGui::GetIO();
-    const auto layout = MeasurePanel(snapshot, scale);
-    const float width = layout.width;
-    const float height = std::min(870.0f * scale, io.DisplaySize.y - 28.0f);
-    ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
-    ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - width) / 2, (io.DisplaySize.y - height) / 2), ImGuiCond_Always);
-    const auto flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings;
-    if (ImGui::Begin("Sky2PartyEditorPanel", nullptr, flags)) {
-        ImGui::TextColored(accent, Tr(Text::TitleFormat), SKY2_PARTY_VERSION);
-        const float closeWidth = ImGui::CalcTextSize(Tr(Text::Close)).x + ImGui::GetStyle().FramePadding.x * 2;
-        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeWidth);
-        const auto closeLabel = std::string(Tr(Text::Close)) + "###close";
-        if (ImGui::SmallButton(closeLabel.c_str())) SetPanelOpen(false);
-        const auto language = static_cast<unsigned>(CurrentLanguage());
-        if (language < kLanguageCount && !fontComplete[language])
-            ImGui::TextWrapped("Font glyphs are missing. Install the matching Windows supplemental fonts and restart.");
-        if (!GameNamesReady(CurrentLanguage())) ImGui::TextWrapped("%s", Tr(Text::GameNamesUnavailable));
-        ImGui::Separator();
-        if (ImGui::BeginTable("features", 2, ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn(Tr(Text::FeatureColumn), ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn(Tr(Text::StatusColumn), ImGuiTableColumnFlags_WidthFixed, layout.featureState);
-            for (size_t index = 0; index < featureCount; ++index) {
-                const auto bit = 1u << index;
-                const bool requested = (snapshot.requestedFeatures & bit) != 0;
-                const bool applied = (snapshot.appliedFeatures & bit) != 0;
-                ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-                ImGui::PushID(static_cast<int>(index));
-                if (DrawSelectionRow(Tr(featureTexts[index]), selected == index)) {
-                    ChangeSelection(index); Activate(snapshot, now);
-                }
-                ImGui::PopID(); ImGui::TableSetColumnIndex(1);
-                const auto color = !snapshot.appliedStateKnown || requested != applied ? warning :
-                    (applied ? accent : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-                ImGui::TextColored(color, "%s", FeatureStateLabel(snapshot, index).c_str());
-            }
-            ImGui::EndTable();
-        }
-        ImGui::TextWrapped("%s", snapshot.message != ControlMessage::None ?
-            ControlMessageText(snapshot.message) : Tr(Text::ControlDefault));
-        DrawFixedMemberWarning(snapshot);
-        ImGui::Separator();
-        const auto* reserveLabel = GameTermFor(CurrentLanguage(), GameTerm::ReserveMembers);
-        const char* roleHeading = reserveLabel ? reserveLabel : Tr(Text::RoleSection);
-        ImGui::TextColored(accent, "%s", roleHeading);
-        if (ImGui::CalcTextSize(roleHeading).x + ImGui::CalcTextSize(Tr(Text::RoleSectionNote)).x +
-            ImGui::GetStyle().ItemSpacing.x < ImGui::GetContentRegionAvail().x) ImGui::SameLine();
-        ImGui::TextWrapped("%s", Tr(Text::RoleSectionNote));
-
-        // 列表单独滚动，底部操作说明保持可见；键盘/手柄选择自动滚动到当前行。
-        const auto roleIndex = selected >= featureCount ? selected - featureCount : snapshot.roster.members.size();
-        const bool preparationSelected = roleIndex < snapshot.roster.members.size() &&
-            snapshot.roster.members[roleIndex].needsPreparation;
-        const auto footerMessage = FooterMessage(snapshot, roleIndex, now);
-        const float wrap = ImGui::GetContentRegionAvail().x;
-        const auto wrappedHeight = [&](const char* text) {
-            return ImGui::CalcTextSize(text, nullptr, false, wrap).y + ImGui::GetStyle().ItemSpacing.y;
-        };
-        // 为实际译文预留高度。长德/法文与当前确认提示不再依赖中文的固定行数，
-        // 列表独立滚动，底部操作说明和高亮快捷键保持可见。
-        const float footer = wrappedHeight(footerMessage.c_str()) + wrappedHeight(Tr(Text::SaveNote)) +
-            (preparationSelected ? wrappedHeight(Tr(Text::PrepareWeaponNote)) + wrappedHeight(Tr(Text::PrepareCraftNote)) : 0) +
-            (!PanelControllerReady() ? wrappedHeight(PanelInputStatus()) : 0) +
-            2 * ImGui::GetTextLineHeightWithSpacing() + 2 * ImGui::GetStyle().CellPadding.y * 2 + 20 * scale;
-        const float listHeight = std::max(90.0f * scale, ImGui::GetContentRegionAvail().y - footer);
-        if (ImGui::BeginChild("members", ImVec2(0, listHeight), ImGuiChildFlags_Borders)) {
-            if (ImGui::BeginTable("roster", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
-                ImGui::TableSetupColumn(Tr(Text::CharacterColumn), ImGuiTableColumnFlags_WidthFixed, layout.name);
-                ImGui::TableSetupColumn(LevelHeading(), ImGuiTableColumnFlags_WidthFixed, layout.level);
-                ImGui::TableSetupColumn(Tr(Text::StatusColumn), ImGuiTableColumnFlags_WidthFixed, layout.state);
-                ImGui::TableSetupColumn(Tr(Text::ActionColumn), ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableHeadersRow();
-                for (size_t index = 0; index < snapshot.roster.members.size(); ++index) {
-                    const auto& member = snapshot.roster.members[index];
-                    const size_t position = featureCount + index;
-                    const bool available = CanAdd(snapshot, member);
-                    const bool armed = confirmation.Armed(member.id, snapshot.roster.generation, now);
-                    ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-                    ImGui::PushID(static_cast<int>(position));
-                    const auto name = DisplayCharacter(kRosterDefinitions[index].id);
-                    if (DrawSelectionRow(name.c_str(), selected == position)) {
-                        ChangeSelection(position); Activate(snapshot, now);
-                    }
-                    if (selected == position && scrollSelection) { ImGui::SetScrollHereY(0.5f); scrollSelection = false; }
-                    ImGui::PopID(); ImGui::TableSetColumnIndex(1);
-                    if (member.level) ImGui::Text("%u", member.level); else ImGui::TextDisabled("—");
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::TextDisabled("%s", snapshot.roster.ready ? RoleState(member) : Tr(Text::WaitingData));
-                    ImGui::TableSetColumnIndex(3);
-                    if (snapshot.roster.pendingId == member.id && member.id != kNoRosterId)
-                        ImGui::TextColored(warning, "%s", Tr(Text::WaitingExecution));
-                    else if (armed) ImGui::TextColored(warning, "%s", Tr(Text::ConfirmAgain));
-                    else if (available) ImGui::TextColored(accent, "%s", RoleAction(member));
-                    else if (member.inParty && !member.hidden) ImGui::TextDisabled("%s", Tr(Text::AdjustInGame));
-                    else ImGui::TextDisabled("—");
-                }
-                ImGui::EndTable();
-            }
-        }
-        ImGui::EndChild();
-
-        const bool needsAttention = submissionRejected || (roleIndex < snapshot.roster.members.size() &&
-            confirmation.Armed(snapshot.roster.members[roleIndex].id, snapshot.roster.generation, now));
-        ImGui::PushStyleColor(ImGuiCol_Text, needsAttention ? warning : ImGui::GetStyleColorVec4(ImGuiCol_Text));
-        ImGui::TextWrapped("%s", footerMessage.c_str());
-        ImGui::PopStyleColor();
-        if (preparationSelected) {
-            ImGui::TextWrapped("%s", Tr(Text::PrepareWeaponNote));
-            ImGui::TextWrapped("%s", Tr(Text::PrepareCraftNote));
-        }
-        ImGui::TextWrapped("%s", Tr(Text::SaveNote));
-        ImGui::Separator();
-        if (ImGui::BeginTable("shortcuts", 2, ImGuiTableFlags_SizingStretchSame)) {
-            const bool pad = PanelUsingController();
-            ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-            Hint(pad ? "View + LS" : "F11", Tr(Text::ShowHide));
-            ImGui::TableSetColumnIndex(1); Hint(pad ? Tr(Text::DpadUpDown) : "↑ / ↓", Tr(Text::Select));
-            ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-            Hint(pad ? "A" : "Enter", Tr(Text::ToggleConfirm));
-            ImGui::TableSetColumnIndex(1); Hint(pad ? "B" : "Esc", Tr(Text::Close));
-            ImGui::EndTable();
-        }
-        if (!PanelControllerReady()) ImGui::TextWrapped("%s", PanelInputStatus());
-    }
-    ImGui::End();
-    if (!PanelOpen()) { confirmation.Cancel(); wasOpen = false; }
+    ID3D11DeviceContext* next = nullptr;
+    current->GetImmediateContext(&next);
+    if (!next) { current->Release(); return false; }
+    if (dx11Ready) ImGui_ImplDX11_Shutdown();
+    dx11Ready = false;
+    deviceContext->Release(); device->Release();
+    device = current; deviceContext = next;
+    const bool initialized = dx11Ready = ImGui_ImplDX11_Init(device, deviceContext);
+    Log(initialized ? "Party panel: rebound replacement D3D11 device." : "Party panel: replacement D3D11 backend failed.");
+    return initialized;
 }
 
 HRESULT WINAPI Present(IDXGISwapChain* swap, UINT interval, UINT options) {
     if (renderReady.load(std::memory_order_acquire) && !(options & DXGI_PRESENT_TEST)) {
         std::lock_guard<std::recursive_mutex> guard(renderLock);
         ContextScope restore;
+        bool healthy = false;
+        bool relevant = false;
         try {
             if (context || InitializeGui(swap)) {
                 DXGI_SWAP_CHAIN_DESC description{};
                 if (SUCCEEDED(swap->GetDesc(&description)) && description.OutputWindow == gameWindow) {
+                    relevant = true;
                     ImGui::SetCurrentContext(context);
-                    // 读取游戏文字语言并在本帧统一使用；不根据手柄或系统区域猜测。
                     RefreshGameLanguage();
+                    // 输入清理位于 GetBuffer/RTV 之前。渲染失败时也不能跳过关闭
+                    // 尾部检查；失焦先取消确认，后台可继续显示相同只读快照。
                     PumpPanelKeyboard();
-                    const auto actions = ConsumePanelActions();
-                    const auto snapshot = ReadControlSnapshot();
-                    // 隐藏时不提交绘制，但仍泵键盘并取消确认；不能停止 F11 的入口检测。
-                    if (!PanelOpen()) {
-                        confirmation.Cancel(); wasOpen = false;
-                        // 隐藏期间不接收游戏的输入消息，故不能等待其 mouse-up/key-up
-                        // 来清理旧状态。只清本插件独立上下文，避免重开时延续旧鼠标按压。
+                    ConsumePanelActions();
+                    if (ConsumePanelReset()) {
+                        PartyPageVisibilityChanged(false); windowState.resetFocus = true;
+                        sky2solo::ResetHotkeyEditor(hotkeyEditor);
                         auto& io = ImGui::GetIO();
                         io.ClearEventsQueue(); io.ClearInputKeys(); io.ClearInputMouse();
-                        io.MouseDrawCursor = false;
+                        sky2solo::FeedGamepad(nullptr, false);
                     }
-                    else {
-                        ID3D11Texture2D* buffer = nullptr;
-                        if (SUCCEEDED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer)))) {
-                            D3D11_TEXTURE2D_DESC size{};
-                            buffer->GetDesc(&size);
-                            RenderView target;
-                            const auto targetResult = device->CreateRenderTargetView(buffer, nullptr, &target.value);
-                            buffer->Release();
-                            if (SUCCEEDED(targetResult) && target.value) {
-                                ImGui_ImplDX11_NewFrame();
-                                ImGui_ImplWin32_NewFrame();
-                                auto& io = ImGui::GetIO();
-                                // 鼠标坐标使用 Win32 客户区逻辑单位，实际后缓冲只决定渲染密度。
-                                io.DisplayFramebufferScale = ImVec2(size.Width / std::max(io.DisplaySize.x, 1.0f),
-                                    size.Height / std::max(io.DisplaySize.y, 1.0f));
-                                io.MouseDrawCursor = !PanelUsingController();
-                                const float scale = std::clamp(io.DisplaySize.y / 1080.0f, 0.78f, 1.25f);
-                                ImGui::GetStyle() = baseStyle;
-                                ImGui::GetStyle().ScaleAllSizes(scale);
-                                ImGui::GetStyle().FontScaleMain = scale;
-                                ImGui::NewFrame();
-                                DrawPanel(actions, snapshot, scale);
-                                ImGui::Render();
-                                {
-                                    // DX11 后端还原管线状态；此层补齐全部颜色/深度输出目标的还原。
-                                    OutputTargets targets(target.value);
-                                    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-                                }
+                    ID3D11Texture2D* buffer = nullptr;
+                    if (BindSwapDevice(swap) && SUCCEEDED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&buffer))) && buffer) {
+                        D3D11_TEXTURE2D_DESC size{}; buffer->GetDesc(&size);
+                        RenderView target;
+                        const auto result = device->CreateRenderTargetView(buffer, nullptr, &target.value);
+                        buffer->Release();
+                        if (SUCCEEDED(result) && target.value) {
+                            ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame();
+                            auto& io = ImGui::GetIO();
+                            io.DisplayFramebufferScale = ImVec2(size.Width / std::max(io.DisplaySize.x, 1.0f),
+                                size.Height / std::max(io.DisplaySize.y, 1.0f));
+                            io.MouseDrawCursor = PanelInteractive() && !PanelUsingController();
+                            const float scale = std::clamp(io.DisplaySize.y / 1080.0f, 0.7f, 2.5f);
+                            // 三个独立壳共享物理像素边框/间距；仅正文走字体 DPI，
+                            // 不再把同一缩放同时作用于样式尺寸与壳的布局参数。
+                            ImGui::GetStyle() = baseStyle;
+                            ImGui::GetStyle().FontScaleDpi = scale;
+                            panelinput::Pad sample{};
+                            const bool freshPad = ReadPanelPad(sample);
+                            XINPUT_GAMEPAD pad{sample.buttons, sample.lt, sample.rt, sample.lx, sample.ly, sample.rx, sample.ry};
+                            // 禁止后端自行轮询；只把游戏既有调用链的值快照送到导航。
+                            sky2solo::FeedGamepad(freshPad ? &pad : nullptr, PanelInteractive());
+                            ImGui::NewFrame(); DrawPanel(scale); ImGui::Render();
+                            {
+                                OutputTargets targets(target.value);
+                                ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
                             }
+                            healthy = true;
                         }
                     }
                 }
             }
         } catch (...) {
-            SetPanelOpen(false); confirmation.Cancel();
-            static bool reported = false;
-            if (!reported) { Log("Party panel: drawing exception contained; panel closed."); reported = true; }
+            PartyPageVisibilityChanged(false);
+            // 不让异常越过游戏 Present；公共 UI 的正常流程不依赖异常恢复。
+            Log("Party panel: drawing exception contained; input capture released.");
+        }
+        // 辅助窗口的交换链不属于本面板，不能把另一个窗口的 Present 当作
+        // 主窗口绘制失败。真实主窗口停帧仍由 500ms 心跳在输入边界自动放行。
+        if (relevant) SetPanelFrameHealth(healthy);
+        if (relevant && !healthy) {
+            PartyPageVisibilityChanged(false);
+            static uint64_t reportedAt = 0;
+            const auto now = GetTickCount64();
+            if (now - reportedAt >= 5000) { reportedAt = now; Log("Party panel: frame unavailable; game input passes through."); }
         }
     }
-    // 必须在释放自有渲染锁并恢复上下文后进入下一层 Present，避免和 Chest 的锁交叉。
     return nextPresent(swap, interval, options);
 }
 }
 
 bool InstallPanel(HMODULE module, uintptr_t executableBase) noexcept {
-    // 必须在创建自己的 Present trampoline 之前等待 Chest，而非 Create 之后才等待。
-    // 超时只放弃本面板，不覆盖 Chest 已在安装或尚未完成的入口。
-    if (!WaitForChestPresent(module, executableBase)) return false;
     // 隐藏临时窗口仅查询本进程 DXGI 虚表，不把第二个加载器或代理 DLL 写入游戏目录。
     const wchar_t* className = L"Sky2PartyEditorBootstrap";
     WNDCLASSW cls{};
@@ -631,6 +314,10 @@ bool InstallPanel(HMODULE module, uintptr_t executableBase) noexcept {
     if (bootstrapDevice) bootstrapDevice->Release();
     DestroyWindow(window); UnregisterClassW(className, module);
     if (!target) return false;
+    // 三个独立 ASI 各自静态链接 MinHook，必须把读取原字节到启用跳板的
+    // 整段安装串行化。只检查 IAT 顶层归属会被第三个插件遮住，不能作为就绪信号。
+    sky2solo::PresentInstallGuard installGuard;
+    if (!installGuard) { Log("Party panel: Present installation lock unavailable."); return false; }
     const auto initialized = MH_Initialize();
     if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) return false;
     unsigned char baseline[16]{};
@@ -652,7 +339,7 @@ bool InstallPanel(HMODULE module, uintptr_t executableBase) noexcept {
         return false;
     }
     renderReady.store(true, std::memory_order_release);
-    Log("Party panel: DXGI Present chain installed; F11 / View+LS.");
+    Log("Party panel: DXGI Present chain installed; configured window shortcuts ready.");
     return true;
 }
 }

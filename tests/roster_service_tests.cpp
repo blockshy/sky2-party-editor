@@ -140,14 +140,6 @@ int main() {
     Check(ReadFlags(members, 10) == 0x8C0, "剧情解除锁后不执行遗留请求");
 
     Check(QueueAddMember(101), "第二个角色可单独请求");
-    const auto beforeLifecycleGeneration=ReadRosterSnapshot().generation;
-    SetRosterRequestsEnabled(false);
-    Check(RosterServiceIdle()&&!QueueAddMember(101)&&ReadRosterSnapshot().pendingId==kNoRosterId&&
-        ReadRosterSnapshot().generation>beforeLifecycleGeneration,"停用立即作废队列并推进代次，不等待绘制或安全帧");
-    TickRosterOnGameThread(input,0x1BF,false,true);
-    Check(ReadFlags(members,10)==0x8C0&&!ReadRosterSnapshot().canEdit,"停用入口在原游戏帧也不能被旧许可重新打开");
-    SetRosterRequestsEnabled(true);TickRosterOnGameThread(input,0x1BF,false,true);
-    Check(ReadFlags(members,10)==0x8C0&&QueueAddMember(101),"重新启用不复活旧请求，只接受新的明确请求");
     Put<uint32_t>(field + 0x1BC8, 1);
     TickRosterOnGameThread(input, 0x1BF, false, true);
     Put<uint32_t>(field + 0x1BC8, 0);

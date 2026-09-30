@@ -4,8 +4,6 @@
 
 本指南适用于 **0.6.0**，也包含从 0.5.0 升级的步骤。下载 [0.6.0 Standalone 独立版或 ASI 插件版](https://github.com/blockshy/sky2-party-editor/releases/tag/v0.6.0)，完整解压后再操作。两种分发功能相同，不能同时安装。
 
-当前源码另提供 [Sky2 Mod Hub](https://github.com/blockshy/sky2-mod-hub) 模块版。它使用宿主的安装、备份和回滚工具，具体路径及从原入口切换的方法见 [Hub 模块版](HUB_MODULE.md)。下文 `Install-Mod.ps1` / `Uninstall-Mod.ps1` 只管理原 Standalone / ASI，不用于安装 HubModule；同一队伍功能三种入口不能混装。
-
 ## 兼容版本
 
 游戏目录须包含 `sora_2nd.exe`。支持 Windows x64、DirectX 11，已核验 EXE 的 SHA-256 为：
@@ -60,7 +58,7 @@ ASI 版（根目录 Loader 需另行安装）：
       └─ LICENSES.txt
 ```
 
-若目标已有同名文件，先确认来源；来源不明时不要覆盖。游戏启动后会在对应数据目录生成 `party.log`，应用面板设置后保存 `settings.ini`。
+若目标已有同名文件，先确认来源；来源不明时不要覆盖。游戏启动后会在对应数据目录生成 `party.log`，应用功能设置后保存 `settings.ini`。当前源码独立版在“快捷键”页保存时另写 `shortcuts.ini`，更新和卸载应保留此玩家配置。
 
 ## 脚本安装与更新
 
@@ -87,7 +85,7 @@ ASI 用户无需替换公共 Loader。若同时更换独立版/ASI 版，请按�
 1. 退出游戏，用**原分发包**的卸载脚本，或手动移除已确认属于本项目的二进制及 `LICENSES.txt`。
 2. 独立版转 ASI：确认原本的队伍 `xinput1_4.dll` 已移除，再按上文安装公共 Loader 和队伍 ASI。若旧 DLL 来自其他项目，按该项目自己的迁移说明处理。
 3. ASI 转独立版：先确认没有其他插件依赖公共 Loader。Loader 的移除按其自身说明操作，队伍脚本不会替你删除它；根目录仍有 Loader 时不能安装独立版。
-4. 安装目标分发。两个数据目录互相独立，脚本不自动迁移配置或日志；如需沿用设置，退出游戏后手动复制自己的 `settings.ini` 到目标数据目录。
+4. 安装目标分发。两个数据目录互相独立，脚本不自动迁移配置或日志；如需沿用设置，退出游戏后手动复制自己的 `settings.ini`，以及当前独立源码版的 `shortcuts.ini` 到目标数据目录。
 
 不要同时保留两种队伍入口。运行时重复实例保护只是防止重复挂钩，不是推荐的安装方式。
 

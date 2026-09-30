@@ -16,7 +16,6 @@ using Tick = bool(*)(uintptr_t, uint32_t);
 Tick capturedDetour = nullptr;
 bool safe = false, handled = false, applySuccess = true, nativeKnown = true, saveSuccess = true;
 bool lastAllowed = false, lastAnywhere = false;
-bool rosterRequestsEnabled=true,rosterIdle=true;
 uint32_t savedMask = 0;
 int applyCalls = 0, tickCalls = 0, saveCalls = 0, originalCalls = 0;
 int checks = 0, failures = 0;
@@ -76,8 +75,6 @@ void TickRosterOnGameThread(uintptr_t, uint32_t, bool, bool allowed, bool anywhe
     events.emplace_back("roster"); ++tickCalls; lastAllowed = allowed; lastAnywhere = anywhere;
 }
 RosterSnapshot ReadRosterSnapshot() noexcept { return {}; }
-void SetRosterRequestsEnabled(bool enabled) noexcept {rosterRequestsEnabled=enabled;events.emplace_back(enabled?"roster-open":"roster-cancel");}
-bool RosterServiceIdle() noexcept {return rosterIdle;}
 }
 
 int main() {
@@ -191,46 +188,6 @@ int main() {
     std::thread otherThread([] { RunTick(); }); otherThread.join();
     Check(originalCalls == previousOriginalCalls + 1 && tickCalls == previousTickCalls,
         "不同线程回调只运行原生函数，不执行游戏数据服务");
-
-    // 模块生命周期复用安全帧事务，但停用不能把玩家原设置保存成全关。
-    RequestFeatureMask(15);RunTick();const auto preference=ReadControlSnapshot().requestedFeatures;
-    const int savedBeforeStop=saveCalls;
-    safe=false;Check(RequestModuleActivity(false)&&ModuleActivityState()==3&&!rosterRequestsEnabled,
-        "停用先封闭角色队列，并立即报告等待状态");
-    RunTick();Check(ModuleActivityState()==3&&ReadControlSnapshot().appliedFeatures==15,
-        "菜单或不安全帧不伪装成已停用");
-    Check(!RequestModuleActivity(true),"过渡中不接受相反请求");
-    RequestFeatureMask(0);Check(ReadControlSnapshot().requestedFeatures==preference,"过渡中旧动作不能改偏好");
-    safe=true;rosterIdle=false;RunTick();Check(ModuleActivityState()==3,"已进入原生调用的角色请求先正常收尾");
-    rosterIdle=true;guardFixture.riskCount=1;RunTick();
-    Check(ModuleActivityState()==1&&rosterRequestsEnabled&&ReadControlSnapshot().appliedFeatures==15&&
-        ModuleActivityMessage()==ControlMessage::FixedMembersNeedRestoring,"固定后备存在时拒绝停用并回到真实启用态");
-    Check(saveCalls==savedBeforeStop,"被拒停用不能写偏好");
-    guardFixture={true,FixedMemberGuardFailure::None};Check(RequestModuleActivity(false),"修复固定后备后可重新明确停用");
-    RunTick();Check(ModuleActivityState()==0&&ReadControlSnapshot().appliedFeatures==0&&!rosterRequestsEnabled,
-        "安全帧全量回滚代码后才标记停用");
-    Check(ReadControlSnapshot().requestedFeatures==preference&&saveCalls==savedBeforeStop,
-        "停用保留原偏好且不写全关INI");
-    const int idleTicks=tickCalls,idleApplies=applyCalls,idleOriginals=originalCalls;
-    RunTick();RunTick();Check(tickCalls==idleTicks&&applyCalls==idleApplies&&originalCalls==idleOriginals+2,
-        "已停用协调器只调用原生输入，不采样/改设置/处理加入");
-    RequestFeatureMask(0);Check(ReadControlSnapshot().requestedFeatures==preference,"停用期间拒绝迟到功能请求");
-    Check(RequestModuleActivity(true)&&ModuleActivityState()==2,"重新启用异步等待安全帧");RunTick();
-    Check(ModuleActivityState()==1&&ReadControlSnapshot().appliedFeatures==preference&&rosterRequestsEnabled&&saveCalls==savedBeforeStop,
-        "重新启用回放原偏好，不重复初始化或改写已保存偏好");
-    applySuccess=false;nativeKnown=true;Check(RequestModuleActivity(false),"回滚失败测试停用请求被接收");RunTick();
-    Check(ModuleActivityState()==1&&ModuleActivityMessage()==ControlMessage::ApplyFailed&&rosterRequestsEnabled,
-        "原生事务失败不能误报停用，回到实际启用态并说明原因");
-    applySuccess=true;Check(RequestModuleActivity(false),"显式重试可成功停用");RunTick();
-    applySuccess=false;Check(RequestModuleActivity(true),"启用失败测试请求被接收");RunTick();
-    Check(ModuleActivityState()==0&&!rosterRequestsEnabled&&ModuleActivityMessage()==ControlMessage::ApplyFailed,
-        "启用失败回到已停用，角色请求入口继续关闭");
-    applySuccess=true;Check(RequestModuleActivity(true),"失败后允许明确重试启用");RunTick();
-    Check(ModuleActivityState()==1&&ReadControlSnapshot().appliedFeatures==preference,"反复启停仍保留偏好");
-    Check(RequestModuleActivity(false),"未知回滚测试先安全停用");RunTick();
-    Check(RequestModuleActivity(true),"未知回滚测试再申请启用");applySuccess=false;nativeKnown=false;RunTick();
-    Check(ModuleActivityState()==1&&!ReadControlSnapshot().appliedStateKnown&&ModuleActivityMessage()==ControlMessage::ApplyFailed,
-        "启用失败且原生状态未知时保留活动记录，不能误报已安全停用");
 
     VirtualFree(image, 0, MEM_RELEASE);
     std::printf("%d coordinator checks, %d failures\n", checks, failures);

@@ -4,7 +4,7 @@
 
 **已发布独立版 / ASI：0.6.0** · [下载原发行包](https://github.com/blockshy/sky2-party-editor/releases/tag/v0.6.0) · [发行说明](https://github.com/blockshy/sky2-party-editor/blob/v0.6.0/docs/RELEASE_NOTES_0.6.0.md) · [更新记录](CHANGELOG.md)
 
-**当前源码新增 [Sky2 Mod Hub 0.5.0](https://github.com/blockshy/sky2-mod-hub) 模块支持**：统一面板、快捷键与手柄导航，提供固定页头和安全实时启停。本仓库此次更新不新增 Release，也不替换原 0.6.0 附件；模块可从 Hub 发行包取得，或按[构建指南](https://github.com/blockshy/sky2-party-editor/blob/main/docs/BUILDING.md)自行构建。
+**当前未发布的独立界面更新**：ASI / Standalone 采用固定侧栏、页头、内容和底栏，支持鼠标拖动、LB/RB 切侧栏、LT/RT 切页签、十字键/左摇杆导航及右摇杆滚动。失焦保留只读窗口并取消确认；修复关闭后保留虚拟键导致的键鼠持续被屏蔽。两种分发继续保留，旧 Release 附件不因源码变动而更新。
 
 界面自动跟随游戏文字语言，支持简体中文、繁体中文、日语、英语、德语、法语、西班牙语和韩语；角色名称与原生菜单术语直接读取对应语言的游戏资源。
 
@@ -23,24 +23,21 @@
 
 ## 选择分发
 
-保留原 Standalone 与 ASI，并新增统一中心模块版，**同一功能三选一安装**。
+提供 Standalone 与 ASI 两种入口，**同一功能二选一安装**。
 
 | 发行包 | 适用情况 | 入口 |
 | --- | --- | --- |
 | `Sky2PartyEditor-0.6.0-Standalone.zip` | 只使用本 Mod，且游戏根目录没有其他同名 DLL | 根目录 `xinput1_4.dll` |
 | `Sky2PartyEditor-0.6.0-ASI.zip` | 与宝箱 Mod 等 ASI 插件共用公共 Loader | `plugins/Sky2PartyEditor.asi` |
-| Hub 发行包内的队伍模块 / 自行构建的 `HubModule` 包 | 接入 Sky2 Mod Hub，统一面板与快捷键 | `plugins/Sky2ModHub/modules/Sky2PartyEditor.module.dll` |
 
-模块版通过 Hub 页面操作，复用原 ASI 设置和日志。F11 / View + LS 打开公共中心，由宿主统一管理所有绑定；模块自身不安装输入或绘制挂钩。原两版持续支持；模块安装、切换、默认按键与安全启停说明见 [Hub 模块版](docs/HUB_MODULE.md)。
-
-ASI 版需要另行安装 **Ultimate ASI Loader 9.7.4 x64**；本项目不捆绑或管理公共 Loader。使用独立面板与 [Sky2 Chest Tracker](https://github.com/blockshy/sky2-chest-tracker) 共存时，两者选择 ASI；希望统一面板时，选择 Hub 及对应模块。Loader 下载和原双分发迁移见[安装指南](docs/INSTALLATION.md)。GitHub 自动生成的 Source code 压缩包不能直接安装。
+ASI 版需要另行安装 **Ultimate ASI Loader 9.7.4 x64**；本项目不捆绑或管理公共 Loader。使用独立面板与 [Sky2 Chest Tracker](https://github.com/blockshy/sky2-chest-tracker) 共存时，两者选择 ASI。Loader 下载和原双分发迁移见[安装指南](docs/INSTALLATION.md)。GitHub 自动生成的 Source code 压缩包不能直接安装。
 
 ## 快速使用
 
-以下步骤适用于原 Standalone / ASI 面板。HubModule 使用 [Hub 页面与导航](docs/HUB_MODULE.md#使用)，角色操作及存档边界相同。
+以下步骤适用于 Standalone / ASI 面板。当前源码的独立窗口导航见[使用指南](docs/USAGE.md#控制面板)；旧 0.6.0 附件保留原面板。
 
 1. 按[安装指南](docs/INSTALLATION.md)手动复制文件，或使用包内脚本安装。
-2. 进入普通探索，按 **F11** 或 **View + LS（按下左摇杆）** 打开控制面板。
+2. 进入普通探索，默认按 **F8** 或 **View + 十字键左** 打开控制面板。可在侧栏“快捷键”中修改；保存时会检查三个已加载合作 Mod 的冲突。
 3. 用方向键 / 十字键选择，**Enter / A** 确认，**Esc / B** 关闭；鼠标也可点击。
 4. 关闭面板后，用游戏原生队伍键打开编成并调整主力。Xbox 默认键为 **X**，改键后以游戏提示为准。
 
@@ -54,7 +51,6 @@ ASI 版需要另行安装 **Ultimate ASI Loader 9.7.4 x64**；本项目不捆绑
 | --- | --- |
 | [安装指南](docs/INSTALLATION.md) | 手动与脚本安装、更新、卸载、分发切换、文件冲突 |
 | [使用指南](docs/USAGE.md) | 面板键位、角色范围、补足规则、配置 |
-| [Hub 模块版](docs/HUB_MODULE.md) | 公共中心、固定页头、统一快捷键、安全启停与三种入口切换 |
 | [测试与排错](docs/TESTING.md) | 游戏内回归步骤、日志与反馈信息 |
 | [构建指南](https://github.com/blockshy/sky2-party-editor/blob/main/docs/BUILDING.md) | 依赖、编译、自动测试与打包 |
 | [多语言维护](https://github.com/blockshy/sky2-party-editor/blob/main/docs/LOCALIZATION.md) | 语言检测、原生名称来源与翻译规则 |

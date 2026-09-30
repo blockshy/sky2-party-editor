@@ -3,13 +3,6 @@ project(Sky2PartyEditor VERSION 0.6.0 LANGUAGES C CXX)
 
 # 纯逻辑测试不需要游戏资源；插件仅支持已审计的 Windows x64 构建。
 option(PARTY_BUILD_MOD "同时构建独立 XInput 版与 ASI 队伍插件" ON)
-# 第三分发独立开关：没有相邻 Hub SDK 的旧仓库仍可原样构建 ASI/Standalone。
-set(PARTY_HUB_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sky2-mod-hub/sdk" CACHE PATH "Sky2 Mod Hub ABI SDK 目录")
-set(PARTY_HUB_MODULE_DEFAULT OFF)
-if(WIN32 AND MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND EXISTS "${PARTY_HUB_SDK_DIR}/sky2_hub.h")
-    set(PARTY_HUB_MODULE_DEFAULT ON)
-endif()
-option(PARTY_BUILD_HUB_MODULE "额外构建使用统一宿主的队伍模块" ${PARTY_HUB_MODULE_DEFAULT})
 set(PARTY_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.deps" CACHE PATH "锁定版本的第三方源码目录")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -41,14 +34,20 @@ if(PARTY_BUILD_MOD)
         "${PARTY_DEPS_DIR}/imgui/backends/imgui_impl_win32.cpp")
     target_include_directories(party_imgui PUBLIC "${PARTY_DEPS_DIR}/imgui" "${PARTY_DEPS_DIR}/imgui/backends")
     target_compile_options(party_imgui PRIVATE /utf-8)
-    target_compile_definitions(party_imgui PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    # 手柄仅由游戏原有 IAT 链采样，禁止 Win32 后端加载 XInput 再读一套设备。
+    target_compile_definitions(party_imgui PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
     # 两种分发链接同一批功能对象，只有入口不同，防止修复仅进入某一种安装方式。
     add_library(party_runtime OBJECT
         native/runtime.cpp native/party_native.cpp native/anywhere_menu.cpp
         native/control_state.cpp native/roster_service.cpp native/roster_prepare.cpp native/fixed_member_guard.cpp
-        native/panel.cpp native/panel_input.cpp native/panel_fonts.cpp
+        native/panel.cpp native/panel_input.cpp native/panel_fonts.cpp native/party_page.cpp
+        native/standalone_ui/input.cpp native/standalone_ui/ui.cpp
+        native/standalone_ui/hotkeys.cpp native/standalone_ui/hotkeys_ui.cpp
+        native/standalone_ui/ui_layout.cpp native/standalone_ui/ui_navigation.cpp
+        native/standalone_ui/ui_shell.cpp
         native/game_language.cpp native/game_names.cpp)
-    target_include_directories(party_runtime PRIVATE native)
+    # 两种入口使用仓库自带的 UI 函数表和业务页面，不依赖其它工程。
+    target_include_directories(party_runtime PRIVATE native native/standalone_ui)
     target_compile_definitions(party_runtime PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
         SKY2_PARTY_VERSION="${PROJECT_VERSION}")
     target_compile_options(party_runtime PRIVATE /utf-8 /W4 /EHsc)
@@ -67,31 +66,21 @@ if(PARTY_BUILD_MOD)
     set_target_properties(Sky2PartyEditorStandalone PROPERTIES OUTPUT_NAME xinput1_4 PREFIX "")
 endif()
 
-# 模块版独立编译业务源，不能复用包含私有 MinHook/ImGui 的 party_runtime 对象。
-# SDK hooks 目录优先级高于第三方头，把游戏 hook 统一交给宿主；模块不链接图形库。
-if(PARTY_BUILD_HUB_MODULE)
-    if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-        message(FATAL_ERROR "Hub module requires Windows x64 and MSVC.")
-    endif()
-    if(NOT EXISTS "${PARTY_HUB_SDK_DIR}/sky2_hub.h" OR NOT EXISTS "${PARTY_HUB_SDK_DIR}/hooks/MinHook.h")
-        message(FATAL_ERROR "Hub SDK missing; set PARTY_HUB_SDK_DIR or disable PARTY_BUILD_HUB_MODULE.")
-    endif()
-    add_library(Sky2PartyEditorModule SHARED
-        native/module_entry.cpp native/hub_panel.cpp native/runtime.cpp
-        native/party_native.cpp native/anywhere_menu.cpp native/control_state.cpp
-        native/roster_service.cpp native/roster_prepare.cpp native/fixed_member_guard.cpp
-        native/game_language.cpp native/game_names.cpp)
-    target_include_directories(Sky2PartyEditorModule BEFORE PRIVATE "${PARTY_HUB_SDK_DIR}/hooks" "${PARTY_HUB_SDK_DIR}" native)
-    target_compile_definitions(Sky2PartyEditorModule PRIVATE SKY2_HUB_MODULE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
-        SKY2_PARTY_VERSION="${PROJECT_VERSION}")
-    target_compile_options(Sky2PartyEditorModule PRIVATE /utf-8 /W4 /EHsc)
-    target_link_options(Sky2PartyEditorModule PRIVATE /Brepro /DEBUG:NONE)
-    target_link_libraries(Sky2PartyEditorModule PRIVATE bcrypt user32)
-    set_target_properties(Sky2PartyEditorModule PROPERTIES OUTPUT_NAME "Sky2PartyEditor.module" PREFIX "")
-endif()
-
 # 原生纯逻辑测试由各模块通过 add_test 注册；安装隔离测试无需连接游戏。
 if(BUILD_TESTING)
+    if(PARTY_BUILD_MOD)
+        set(SKY2_SOLO_IMGUI_TARGET party_imgui)
+        include(native/standalone_ui/tests.cmake)
+        # 可选人工视觉检查：真实业务页配合合成快照离屏绘制 PNG，不自动接触游戏。
+        add_executable(party_standalone_visual EXCLUDE_FROM_ALL tests/standalone_panel_visual.cpp
+            native/standalone_ui/hotkeys.cpp native/standalone_ui/hotkeys_ui.cpp native/standalone_ui/input.cpp
+            native/party_page.cpp native/panel_fonts.cpp native/standalone_ui/ui.cpp
+            native/standalone_ui/ui_shell.cpp native/standalone_ui/ui_layout.cpp native/standalone_ui/ui_navigation.cpp)
+        target_include_directories(party_standalone_visual PRIVATE native native/standalone_ui)
+        target_compile_definitions(party_standalone_visual PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN SKY2_PARTY_VERSION="${PROJECT_VERSION}")
+        target_compile_options(party_standalone_visual PRIVATE /utf-8 /W4 /EHsc)
+        target_link_libraries(party_standalone_visual PRIVATE party_imgui d3d11 d3dcompiler dwmapi windowscodecs ole32)
+    endif()
     add_executable(party_patch_tests tests/patch_tests.cpp)
     target_include_directories(party_patch_tests PRIVATE native)
     if(MSVC)
@@ -122,21 +111,12 @@ if(BUILD_TESTING)
         add_test(NAME party_${logic_test}_tests COMMAND party_${logic_test}_tests)
     endforeach()
     if(WIN32 AND MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
-        if(PARTY_BUILD_HUB_MODULE)
-            # 假宿主驱动真实页面代码，验证确认/切页/失焦/世代取消及动作安全边界。
-            add_executable(party_hub_panel_tests tests/hub_panel_tests.cpp native/hub_panel.cpp)
-            target_include_directories(party_hub_panel_tests PRIVATE native "${PARTY_HUB_SDK_DIR}")
-            target_compile_definitions(party_hub_panel_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN SKY2_PARTY_VERSION="${PROJECT_VERSION}")
-            target_compile_options(party_hub_panel_tests PRIVATE /utf-8 /W4 /EHsc)
-            add_test(NAME party_hub_panel_tests COMMAND party_hub_panel_tests)
-            # 装载真实产物，确保查询无副作用、ABI 拒绝、错误宿主拒绝及不安装任何 hook。
-            add_executable(party_hub_module_tests tests/hub_module_tests.cpp)
-            target_include_directories(party_hub_module_tests PRIVATE "${PARTY_HUB_SDK_DIR}")
-            target_compile_definitions(party_hub_module_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-            target_compile_options(party_hub_module_tests PRIVATE /utf-8 /W4 /EHsc)
-            add_test(NAME party_hub_module_tests COMMAND party_hub_module_tests "$<TARGET_FILE:Sky2PartyEditorModule>")
-            add_test(NAME party_hub_registration_failure COMMAND party_hub_module_tests "$<TARGET_FILE:Sky2PartyEditorModule>" reject-registration)
-        endif()
+        # 显式 UI 替身驱动生产业务页，验证切页/失焦/代次取消和双确认边界。
+        add_executable(party_page_tests tests/party_page_tests.cpp native/party_page.cpp)
+        target_include_directories(party_page_tests PRIVATE native native/standalone_ui)
+        target_compile_definitions(party_page_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN SKY2_PARTY_VERSION="${PROJECT_VERSION}")
+        target_compile_options(party_page_tests PRIVATE /utf-8 /W4 /EHsc)
+        add_test(NAME party_page_tests COMMAND party_page_tests)
         add_executable(party_instruction_tests tests/instruction_tests.cpp)
         target_include_directories(party_instruction_tests PRIVATE native)
         target_compile_options(party_instruction_tests PRIVATE /utf-8 /W4)
@@ -158,6 +138,14 @@ if(BUILD_TESTING)
         target_compile_options(party_panel_input_tests PRIVATE /utf-8 /W4)
         target_compile_definitions(party_panel_input_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
         add_test(NAME party_panel_input_tests COMMAND party_panel_input_tests)
+        # 真实输入接入层使用合成系统边界，覆盖 VK7 锁死、失焦保留、心跳失效、
+        # 双槽镜像和合作 IAT 内外层；不加载游戏，也不挂真实输入或窗口过程。
+        add_executable(party_panel_input_runtime_tests tests/panel_input_runtime_tests.cpp
+            native/standalone_ui/input.cpp native/standalone_ui/hotkeys.cpp)
+        target_include_directories(party_panel_input_runtime_tests PRIVATE native)
+        target_compile_options(party_panel_input_runtime_tests PRIVATE /utf-8 /W4 /EHsc)
+        target_compile_definitions(party_panel_input_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        add_test(NAME party_panel_input_runtime_tests COMMAND party_panel_input_runtime_tests)
         # 合成进程内对象验证队列与场景失效；准备函数由测试替身实现，绝不执行游戏代码。
         add_executable(party_roster_service_tests tests/roster_service_tests.cpp native/roster_service.cpp)
         target_include_directories(party_roster_service_tests PRIVATE native)

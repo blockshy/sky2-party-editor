@@ -63,6 +63,42 @@ struct ChainHarness {
 int main() {
     unsigned scenarios = 0;
     {
+        // 生产入口与历史 PadPolicy 分开验证，避免旧 View+LS 模型意外替代新键位。
+        SoloPadPolicy current;
+        current.Update({}, false, true);
+        Require(!current.Update(Buttons(View | LeftStick), false, true).toggle,
+            "current standalone policy no longer uses View plus LS");
+        current.Update({}, false, true);
+        Require(!current.Update(Buttons(View | PanelToggleButton | 1), false, true).toggle,
+            "diagonal D-pad cannot open the Party window");
+        current.Update({}, false, true);
+        Require(current.Update(Buttons(View | PanelToggleButton), false, true).toggle,
+            "current standalone policy uses View plus D-pad Left");
+        Require(!current.Update(Buttons(View | PanelToggleButton), true, true).toggle,
+            "current standalone opening chord toggles once per physical press");
+        ++scenarios;
+    }
+    {
+        // 复现现场 VK 0x07 持续高位；它从来不是一个能够等待玩家松开的键。
+        int reservedReads = 0;
+        const auto reserved = [&](int key) -> uint16_t {
+            if (key == 7) { ++reservedReads; return 0x8000; }
+            return 0;
+        };
+        Require(!AnyPhysicalKeyDown(reserved) && reservedReads == 0,
+            "reserved VK7 cannot retain the keyboard/mouse capture tail");
+        Require(AnyPhysicalKeyDown([](int key) { return key == 0x41 ? 0x8000 : 0; }),
+            "real A remains captured until release");
+        Require(AnyPhysicalKeyDown([](int key) { return key == 1 ? 0x8000 : 0; }),
+            "mouse button also retains the legitimate closing tail");
+        Require(!IsPhysicalVirtualKey(0xC3) && !IsPhysicalVirtualKey(0xE7),
+            "XInput virtual and Unicode placeholder keys are not physical keyboard input");
+        Require(!FrameHealthy(0, 1000) && FrameHealthy(1000, 1500) && !FrameHealthy(1000, 1501),
+            "capture requires a successful frame within 500ms");
+        Require(!FrameHealthy(2000, 1000), "invalid backward heartbeat cannot capture");
+        ++scenarios;
+    }
+    {
         PadPolicy p;
         Require(p.Update(Buttons(View | LeftStick), false, true, Chain::Standalone).actions == 0,
             "initial held chord must wait for release");

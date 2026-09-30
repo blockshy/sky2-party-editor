@@ -35,6 +35,7 @@ __pycache__/
 *.sav
 *.bak
 settings.ini
+shortcuts.ini
 .env
 .env.*
 !.env.example

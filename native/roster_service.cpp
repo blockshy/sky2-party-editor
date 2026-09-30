@@ -17,7 +17,6 @@ uint64_t g_generation = 0;
 uint64_t g_lastTick = 0;
 bool g_wasSafe = false;
 bool g_processing = false;
-bool g_acceptRequests = true; // 与请求体一样受 g_lock 保护，不访问游戏内存。
 struct Member { uint32_t id, flags; };
 static_assert(sizeof(Member) == 8);
 struct Identity {
@@ -296,7 +295,7 @@ bool QueueAddMember(uint32_t id) noexcept {
     const auto now = GetTickCount64();
     const auto index = RosterIndex(id);
     AcquireSRWLockExclusive(&g_lock);
-    const bool accept = g_acceptRequests && index != kRosterDefinitions.size() && g_snapshot.ready && g_snapshot.canEdit &&
+    const bool accept = index != kRosterDefinitions.size() && g_snapshot.ready && g_snapshot.canEdit &&
         g_snapshot.allowUnjoined && g_snapshot.members[index].canAdd && !g_processing &&
         g_request.id == kNoRosterId && now >= g_snapshot.capturedAtMs && now - g_snapshot.capturedAtMs <= 500;
     if (accept) {
@@ -307,25 +306,6 @@ bool QueueAddMember(uint32_t id) noexcept {
     }
     ReleaseSRWLockExclusive(&g_lock);
     return accept;
-}
-
-void SetRosterRequestsEnabled(bool enabled) noexcept {
-    AcquireSRWLockExclusive(&g_lock);
-    g_acceptRequests=enabled;
-    if(!enabled){
-        // 未消费请求明确取消，不保留到下次启用；正在处理的请求仍由游戏线程
-        // 正常收尾并发布真实结果，不能回写旧角色数据来伪装成未发生。
-        if(g_request.id!=kNoRosterId){g_snapshot.lastId=g_request.id;g_snapshot.lastResult=RosterResult::UnsafeState;}
-        g_request={};g_snapshot.pendingId=kNoRosterId;g_snapshot.canEdit=false;g_snapshot.allowUnjoined=false;
-        for(auto& entry:g_snapshot.members)entry.canAdd=false;
-        ++g_generation;g_snapshot.generation=g_generation;g_wasSafe=false;g_lastTick=0;
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-}
-
-bool RosterServiceIdle() noexcept {
-    AcquireSRWLockShared(&g_lock);const bool idle=!g_processing&&g_request.id==kNoRosterId;
-    ReleaseSRWLockShared(&g_lock);return idle;
 }
 
 void TickRosterOnGameThread(uintptr_t context, uint32_t mask, bool handled, bool allow, bool allowAnywhere) noexcept {
@@ -349,7 +329,7 @@ void TickRosterOnGameThread(uintptr_t context, uint32_t mask, bool handled, bool
         request = g_request;
         g_request = {};
         g_processing = true;
-        if (!g_acceptRequests || !safe || !captured || !allow) result = RosterResult::UnsafeState;
+        if (!safe || !captured || !allow) result = RosterResult::UnsafeState;
         else if (!RosterRequestStillCurrent(now, request.queuedAt, request.generation, g_generation))
             result = RosterResult::StaleRequest;
     }
@@ -369,8 +349,8 @@ void TickRosterOnGameThread(uintptr_t context, uint32_t mask, bool handled, bool
     const auto lastId = request.id != kNoRosterId ? request.id : g_snapshot.lastId;
     const auto lastResult = request.id != kNoRosterId ? result : g_snapshot.lastResult;
     g_snapshot = capture.snapshot;
-    g_snapshot.canEdit = g_acceptRequests && safe && capture.snapshot.ready;
-    g_snapshot.allowUnjoined = g_acceptRequests && allow;
+    g_snapshot.canEdit = safe && capture.snapshot.ready;
+    g_snapshot.allowUnjoined = allow;
     g_snapshot.blockReason = blockReason;
     g_snapshot.capturedAtMs = now;
     g_snapshot.generation = g_generation;
